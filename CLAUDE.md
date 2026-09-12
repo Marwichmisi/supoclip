@@ -232,3 +232,17 @@ the app via `APP_STORE_ID`/`APP_STORE_URL` in `frontend/src/lib/site.ts`
 - **Tools:** create/list/get/wait/cancel/resume/delete tasks, list/download/
   export clips, and public discovery (templates, transitions, fonts, B-roll).
 - Run with `cd mcp && uv run supoclip-mcp`. Details in `mcp/README.md`.
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as GitHub issues on the upstream `FujiwaraChoki/supoclip` (read-only for us); all write operations go to our fork `Marwichmisi/supoclip` via `gh ... --repo`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles use their default label strings (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: one `CONTEXT.md` and one `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+

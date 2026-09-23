@@ -1,0 +1,253 @@
+<!-- PROTOTYPE THROWAWAY — Template Gallery SupoClip. Voir issue #8 (Marwichmisi/supoclip).
+Question : a quoi ressemble la galerie de 12 templates + safe-area preview + apply one-click ?
+3 variantes de layout (A/B/C), switch via barre du bas ou ?variant=A|B|C. Double-cliquer pour ouvrir. -->
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PROTOTYPE — Template Gallery (issue #8)</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; font-family: system-ui, -apple-system, sans-serif; background: #0b0b10; color: #eee; }
+  header.top { padding: 10px 16px; background: #c00; color: #fff; font-weight: 700; font-size: 14px; }
+  .wrap { padding: 16px; padding-bottom: 90px; max-width: 1400px; margin: 0 auto; }
+  .phone { width: 270px; height: 480px; border-radius: 26px; background: linear-gradient(160deg,#2b3a55,#0e1526 60%,#3a2340);
+    position: relative; overflow: hidden; border: 3px solid #333; flex: none; }
+  .phone .face { position: absolute; top: 150px; left: 75px; width: 120px; height: 150px; border-radius: 60px;
+    background: linear-gradient(180deg,#8a6f5c,#5d4a3e); opacity: .9; }
+  .phone .play { position: absolute; top: 215px; left: 121px; font-size: 28px; opacity: .7; }
+  .hookzone { position: absolute; top: 34px; left: 12px; right: 12px; text-align: center; font-weight: 800; font-size: 17px;
+    color: #fff; text-shadow: 0 2px 6px #000; }
+  .capzone { position: absolute; bottom: 96px; left: 10px; right: 10px; text-align: center; font-size: 19px; font-weight: 800; }
+  .capzone .hl { color: #ffe000; }
+  .pbar { position: absolute; bottom: 0; left: 0; height: 8px; width: 100%; background: rgba(255,255,255,.35); }
+  .pbar > div { height: 100%; width: 38%; background: #ffe000; }
+  .safe { position: absolute; inset: 0; pointer-events: none; display: none; }
+  .safe.on { display: block; }
+  .safe .t { position: absolute; top: 0; left: 0; right: 0; height: 64px; border-bottom: 2px dashed #0ff; }
+  .safe .b { position: absolute; bottom: 0; left: 0; right: 0; height: 90px; border-top: 2px dashed #0ff; }
+  .safe .r { position: absolute; top: 64px; bottom: 90px; right: 0; width: 44px; border-left: 2px dashed #0ff; }
+  .freeze { position: absolute; inset: 0; display: none; align-items: center; justify-content: center;
+    background: rgba(0,0,0,.45); color: #fff; font-weight: 800; font-size: 18px; text-align: center; }
+  .freeze.on { display: flex; }
+  /* per-template caption flavors */
+  .tpl-default .cap { color: #fff; }
+  .tpl-hormozi .cap { background: #000; color: #fff; display: inline; padding: 2px 8px; border-radius: 8px; }
+  .tpl-mrbeast .cap { color: #ffe000; font-size: 26px; -webkit-text-stroke: 1px #000; text-transform: uppercase; }
+  .tpl-minimal .cap { color: #fff; font-size: 15px; font-weight: 400; }
+  .tpl-tiktok .cap { color: #fff; text-shadow: 2px 2px 0 #00f0ff, -2px -2px 0 #ff0050; }
+  .tpl-neon .cap { color: #fff; text-shadow: 0 0 8px #f0f, 0 0 18px #0ff; }
+  .tpl-podcast .cap { font-family: Georgia, serif; color: #fff; background: rgba(0,0,0,.55); font-size: 16px; }
+  .tpl-splitduo .cap { color: #7df9ff; } .tpl-splitduo .hookzone { color: #ffb300; }
+  .tpl-cinebars .cap { font-size: 14px; letter-spacing: 2px; text-transform: uppercase; }
+  .tpl-cinebars::before, .tpl-cinebars::after { content:""; position:absolute; left:0; right:0; height:52px; background:#000; }
+  .tpl-cinebars::before { top:0; } .tpl-cinebars::after { bottom:0; }
+  .tpl-outline .cap { color: #fff; -webkit-text-stroke: 2px #000; font-size: 24px; text-transform: uppercase; }
+  .tpl-karaokepop .cap .hl { background: linear-gradient(90deg,#ffe000,#ff7b00); color:#000; padding: 0 6px; border-radius: 6px; }
+  .tpl-mono .cap { font-family: monospace; color: #00ff88; font-size: 16px; }
+  /* punch-in indicator */
+  .energie .capzone { animation: punch 2.4s infinite; transform-origin: center; }
+  @keyframes punch { 0%,55% { transform: scale(1);} 62% { transform: scale(1.18);} 78%,100% { transform: scale(1);} }
+  .grid { display: flex; gap: 16px; flex-wrap: wrap; }
+  .card { background: #17171f; border: 2px solid #2c2c38; border-radius: 10px; padding: 10px; width: 200px; cursor: pointer; }
+  .card.sel { border-color: #ffe000; }
+  .card h4 { margin: 0 0 4px; font-size: 13px; }
+  .card p { margin: 0; font-size: 11px; color: #aaa; }
+  .mini { height: 64px; border-radius: 6px; background: #000; display: flex; align-items: center; justify-content: center;
+    font-weight: 800; font-size: 13px; margin-bottom: 8px; text-align: center; padding: 4px; }
+  .panel { background: #14141b; border: 1px solid #2c2c38; border-radius: 10px; padding: 12px; }
+  .panel h3 { margin: 0 0 8px; font-size: 13px; text-transform: uppercase; color: #ffe000; }
+  .seg { display: flex; gap: 6px; margin-bottom: 8px; }
+  .seg button, .btn { background: #26262f; color: #eee; border: 1px solid #3a3a48; border-radius: 8px; padding: 7px 10px;
+    cursor: pointer; font-size: 13px; }
+  .seg button.on, .btn.primary { background: #ffe000; color: #111; border-color: #ffe000; font-weight: 700; }
+  .hookvar { display: block; width: 100%; text-align: left; margin-bottom: 6px; }
+  .hookvar.on { border-color: #ffe000; }
+  #statebar { position: sticky; top: 0; background: #101016; border: 1px solid #333; border-radius: 8px; padding: 8px 12px;
+    font-family: monospace; font-size: 12px; margin-bottom: 12px; z-index: 5; }
+  #switcher { position: fixed; bottom: 14px; left: 50%; transform: translateX(-50%); background: #fff; color: #111;
+    border-radius: 999px; padding: 8px 14px; display: flex; gap: 12px; align-items: center; box-shadow: 0 6px 24px #000;
+    font-weight: 700; z-index: 50; }
+  #switcher button { border: none; background: #111; color: #fff; border-radius: 999px; width: 30px; height: 30px;
+    cursor: pointer; font-size: 15px; }
+  .variant { display: none; } .variant.show { display: block; }
+  .cols { display: flex; gap: 16px; align-items: flex-start; }
+  .filmstrip { display: flex; gap: 10px; overflow-x: auto; padding: 10px 0; }
+  .filmstrip .card { width: 150px; flex: none; }
+  label.chk { display: block; font-size: 13px; margin: 6px 0; }
+</style>
+</head>
+<body>
+<header class="top">PROTOTYPE JETABLE — Template Gallery · issue #8 · ne pas merger tel quel</header>
+<div class="wrap">
+  <div id="statebar">state…</div>
+
+  <!-- VARIANTE A : rail + phone + colonne hooks -->
+  <section class="variant" id="vA">
+    <div class="cols">
+      <div class="panel" style="width:240px"><h3>12 templates</h3><div id="railA" class="grid" style="flex-direction:column"></div></div>
+      <div><div class="phone tpl-default energie" id="phoneA"></div></div>
+      <div class="panel" style="width:280px">
+        <h3>Hook · 3 variantes</h3><div id="hooksA"></div>
+        <h3>Preset motion</h3><div class="seg" id="presetA"></div>
+        <label class="chk"><input type="checkbox" id="progA" checked> Progress-bar</label>
+        <label class="chk"><input type="checkbox" id="safeA" checked> Safe-area TikTok</label>
+        <button class="btn primary" style="width:100%;margin-top:8px" onclick="alert('PROTO: apply + re-render (stub)')">Appliquer au clip</button>
+        <button class="btn" style="width:100%;margin-top:6px" onclick="alert('PROTO: export cover 1080x1920 (stub)')">Exporter cover</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- VARIANTE B : focus plein ecran + filmstrip -->
+  <section class="variant" id="vB">
+    <div class="panel" style="margin-bottom:12px">
+      <div class="seg" id="hooksB"></div>
+      <div class="seg" id="presetB"></div>
+      <label class="chk" style="display:inline-block;margin-right:12px"><input type="checkbox" id="progB" checked> Progress-bar</label>
+      <label class="chk" style="display:inline-block"><input type="checkbox" id="safeB" checked> Safe-area</label>
+    </div>
+    <div style="display:flex;justify-content:center"><div class="phone tpl-default energie" id="phoneB" style="width:320px;height:568px"></div></div>
+    <h3 style="color:#ffe000">Templates — filmstrip</h3>
+    <div class="filmstrip" id="stripB"></div>
+  </section>
+
+  <!-- VARIANTE C : comparatif A/B -->
+  <section class="variant" id="vC">
+    <div class="cols">
+      <div class="phone tpl-mrbeast energie" id="phoneC1"></div>
+      <div class="phone tpl-hormozi" id="phoneC2" style="border-color:#ffe000"></div>
+      <div class="panel" style="width:300px">
+        <h3>Duel : A vs B</h3>
+        <div id="duelC"></div>
+        <h3>Hook commun</h3><div id="hooksC"></div>
+        <h3>Preset</h3><div class="seg" id="presetC"></div>
+        <button class="btn primary" style="width:100%" onclick="alert('PROTO: le gagnant est applique (stub)')">Gagnant → appliquer</button>
+        <p style="font-size:11px;color:#888">La question cachee : quel template merite la galerie ? Reagis : tuer / garder / modifier.</p>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div id="switcher">
+  <button id="prev">←</button>
+  <span id="vlabel">A</span>
+  <button id="next">→</button>
+</div>
+
+<script>
+const TPLS = [
+  ["default","Defaut","karaoke jaune, bas"],
+  ["hormozi","Hormozi","pill noire, word-pop"],
+  ["mrbeast","MrBeast","jaune geant contour noir"],
+  ["minimal","Minimal","petit blanc, fade"],
+  ["tiktok","TikTok","glitch cyan/magenta"],
+  ["neon","Neon","glow magenta/cyan"],
+  ["podcast","Podcast","serif, bandeau bas"],
+  ["splitduo","Split-duo","hook orange + cap cyan"],
+  ["cinebars","Cine-bars","bandes cinema, caps"],
+  ["outline","Outline bold","gros contour noir, MAJ"],
+  ["karaokepop","Karaoke-pop","highlight degrade"],
+  ["mono","Mono-type","terminal vert"],
+];
+const HOOKS = ["Pourquoi 99% echouent", "Le truc que personne ne dit", "J'aurais aime savoir ca avant"];
+const state = {
+  layout: new URLSearchParams(location.search).get("variant") || "A",
+  tpl: "default", hook: 0, preset: "Energie", progress: true, safe: true,
+  duelA: "mrbeast", duelB: "hormozi",
+};
+function phoneHTML(tpl, hook, preset, progress, safe, freeze) {
+  return `<div class="face"></div><div class="play">▶</div>
+    <div class="hookzone">${HOOKS[hook]}</div>
+    <div class="capzone"><span class="cap">chaque <span class="hl">mot compte</span> vraiment</span></div>
+    ${progress ? `<div class="pbar"><div></div></div>` : ``}
+    <div class="safe${safe ? ` on` : ``}"><div class="t"></div><div class="b"></div><div class="r"></div></div>
+    <div class="freeze${freeze ? ` on` : ``}">SUIS-MOI<br>+ commentaire EP.2</div>`;
+}
+function paint() {
+  document.querySelectorAll(".variant").forEach(s => s.classList.remove("show"));
+  document.getElementById("v" + state.layout).classList.add("show");
+  document.getElementById("vlabel").textContent = state.layout + ({A:" (Rail + phone)",B:" (Focus + strip)",C:" (Duel A/B)"}[state.layout]);
+  const pA = document.getElementById("phoneA");
+  pA.className = "phone tpl-" + state.tpl + (state.preset === "Energie" ? " energie" : "");
+  pA.innerHTML = phoneHTML(state.tpl, state.hook, state.preset, state.progress, state.safe, false);
+  const pB = document.getElementById("phoneB");
+  pB.className = "phone tpl-" + state.tpl + (state.preset === "Energie" ? " energie" : "");
+  pB.style.width = "320px"; pB.style.height = "568px";
+  pB.innerHTML = phoneHTML(state.tpl, state.hook, state.preset, state.progress, state.safe, false);
+  const p1 = document.getElementById("phoneC1"), p2 = document.getElementById("phoneC2");
+  p1.className = "phone tpl-" + state.duelA + (state.preset === "Energie" ? " energie" : "");
+  p2.className = "phone tpl-" + state.duelB + (state.preset === "Energie" ? " energie" : "");
+  p1.innerHTML = phoneHTML(state.duelA, state.hook, state.preset, true, true, false);
+  p2.innerHTML = phoneHTML(state.duelB, state.hook, state.preset, true, true, true);
+  // rails / strips / hooks / presets
+  const rail = document.getElementById("railA"); rail.innerHTML = "";
+  TPLS.forEach(([k, n, d]) => {
+    const c = document.createElement("div"); c.className = "card" + (state.tpl === k ? " sel" : "");
+    c.innerHTML = `<div class="mini tpl-${k}"><span class="cap">mot <span class="hl">compte</span></span></div><h4>${n}</h4><p>${d}</p>`;
+    c.onclick = () => { state.tpl = k; sync(); };
+    rail.appendChild(c);
+  });
+  const strip = document.getElementById("stripB"); strip.innerHTML = "";
+  TPLS.forEach(([k, n]) => {
+    const c = document.createElement("div"); c.className = "card" + (state.tpl === k ? " sel" : "");
+    c.innerHTML = `<div class="mini tpl-${k}"><span class="cap">mot <span class="hl">compte</span></span></div><h4>${n}</h4>`;
+    c.onclick = () => { state.tpl = k; sync(); };
+    strip.appendChild(c);
+  });
+  ["hooksA","hooksB","hooksC"].forEach(id => {
+    const el = document.getElementById(id); if (!el) return; el.innerHTML = "";
+    if (id === "hooksB") {
+      HOOKS.forEach((h, i) => {
+        const b = document.createElement("button"); b.textContent = (i + 1) + ". " + h;
+        if (state.hook === i) b.classList.add("primary");
+        b.onclick = () => { state.hook = i; sync(); }; el.appendChild(b);
+      });
+    } else {
+      HOOKS.forEach((h, i) => {
+        const b = document.createElement("button"); b.className = "btn hookvar" + (state.hook === i ? " on" : "");
+        b.textContent = (i + 1) + ". " + h; b.onclick = () => { state.hook = i; sync(); }; el.appendChild(b);
+      });
+    }
+  });
+  ["presetA","presetB","presetC"].forEach(id => {
+    const el = document.getElementById(id); el.innerHTML = "";
+    ["Calme","Energie"].forEach(p => {
+      const b = document.createElement("button"); b.textContent = p + (p === "Energie" ? " (defaut)" : "");
+      if (state.preset === p) b.classList.add("on");
+      b.onclick = () => { state.preset = p; sync(); }; el.appendChild(b);
+    });
+  });
+  const duel = document.getElementById("duelC"); duel.innerHTML = "";
+  [["A", "duelA"], ["B", "duelB"]].forEach(([lab, key]) => {
+    const s = document.createElement("select"); s.style.cssText = "width:100%;margin-bottom:6px;background:#26262f;color:#eee;padding:6px;border-radius:6px";
+    TPLS.forEach(([k, n]) => {
+      const o = document.createElement("option"); o.value = k; o.textContent = lab + " : " + n;
+      if (state[key] === k) o.selected = true; s.appendChild(o);
+    });
+    s.onchange = e => { state[key] = e.target.value; sync(); }; duel.appendChild(s);
+  });
+  const chk = [["progA"],["progB"]].forEach(([id]) => { const el = document.getElementById(id); if (el) el.checked = state.progress; });
+  document.getElementById("safeA").checked = state.safe; document.getElementById("safeB").checked = state.safe;
+  document.getElementById("statebar").textContent =
+    "state = " + JSON.stringify({ layout: state.layout, template: state.tpl, hookVariante: state.hook + 1, preset: state.preset, progressBar: state.progress, safeArea: state.safe, duel: [state.duelA, state.duelB] });
+  const url = new URL(location.href); url.searchParams.set("variant", state.layout);
+  history.replaceState(null, "", url);
+}
+function sync() { paint(); }
+document.getElementById("progA").onchange = e => { state.progress = e.target.checked; sync(); };
+document.getElementById("progB").onchange = e => { state.progress = e.target.checked; sync(); };
+document.getElementById("safeA").onchange = e => { state.safe = e.target.checked; sync(); };
+document.getElementById("safeB").onchange = e => { state.safe = e.target.checked; sync(); };
+const order = ["A","B","C"];
+function go(d) { state.layout = order[(order.indexOf(state.layout) + d + 3) % 3]; sync(); }
+document.getElementById("prev").onclick = () => go(-1);
+document.getElementById("next").onclick = () => go(1);
+document.addEventListener("keydown", e => {
+  if (/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+  if (e.key === "ArrowLeft") go(-1); if (e.key === "ArrowRight") go(1);
+});
+paint();
+</script>
+</body>
+</html>

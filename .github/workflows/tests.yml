@@ -7,6 +7,10 @@ on:
       - main
       - master
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -46,6 +50,10 @@ jobs:
         with:
           python-version: "3.11"
       - uses: astral-sh/setup-uv@v4
+      - name: Install media test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
       - name: Install backend dependencies
         run: cd backend && uv sync --all-groups
       - name: Run backend tests
@@ -69,6 +77,8 @@ jobs:
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Install frontend dependencies
         run: cd frontend && pnpm install --frozen-lockfile
+      - name: Lint and type-check frontend
+        run: cd frontend && pnpm run lint && pnpm run typecheck
       - name: Run frontend unit tests
         run: cd frontend && pnpm run test:coverage
 

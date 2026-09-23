@@ -5,6 +5,8 @@ Worker tasks - background jobs processed by arq workers.
 import logging
 from typing import Dict, Any, Optional
 import json
+from arq import Retry
+from ..repositories.task_run_guard import TaskRunBusy
 
 from ..observability import configure_logging, set_trace_id
 
@@ -98,6 +100,10 @@ async def process_video_task(
             logger.info(f"Task {task_id} completed successfully")
             return result
 
+        except TaskRunBusy:
+            # A resume request may still own the guard while publishing this job.
+            # Retry without rewriting task state or creating a dead-letter entry.
+            raise Retry(defer=2)
         except Exception as e:
             logger.error(f"Task {task_id} failed: {e}", exc_info=True)
             try:
@@ -119,6 +125,8 @@ async def process_video_task(
             # Error will be caught by arq and task status will be updated
             raise
 
+from ..services.editor_service import prepare_editor, export_editor, combine_editor
+
 # Worker configuration for arq
 class WorkerSettings:
     """Configuration for arq worker."""
@@ -129,7 +137,7 @@ class WorkerSettings:
     config = Config()
 
     # Functions to run
-    functions = [process_video_task]
+    functions = [process_video_task, prepare_editor, export_editor, combine_editor]
     queue_name = "supoclip_tasks"
 
     # Redis settings from environment

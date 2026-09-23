@@ -21,4 +21,6 @@ export const draft: EditDocument = {
   effects: { brightness: 100, contrast: 100, saturation: 100, blur: 0, hue: 0 },
   volume: 1,
   muted: false,
+  motionPreset: "energie",
+  progressBar: true,
 };

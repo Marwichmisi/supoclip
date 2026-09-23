@@ -389,6 +389,28 @@ class ClipRepository:
         }
 
     @staticmethod
+    async def set_motion_preset(
+        db: AsyncSession, clip_id: str, preset: Optional[str]
+    ) -> None:
+        """T2 — persiste le preset motion du clip. Ignore les DB pre-T1."""
+        try:
+            await db.execute(
+                sa_text(
+                    """
+                    UPDATE generated_clips
+                    SET preset = :preset,
+                        updated_at = NOW()
+                    WHERE id = :clip_id
+                    """
+                ),
+                {"clip_id": clip_id, "preset": preset},
+            )
+            await commit_unless_editing(db)
+        except DBAPIError as exc:
+            if getattr(exc.orig, "sqlstate", None) != "42703":
+                raise
+
+    @staticmethod
     async def update_clip(
         db: AsyncSession,
         clip_id: str,

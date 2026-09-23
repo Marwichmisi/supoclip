@@ -123,9 +123,14 @@ async def save(
             ):
                 raise ValueError("Invalid draft revision")
             document = EditDocument.model_validate(payload.get("document"))
-            return await run_in_thread(
+            saved = await run_in_thread(
                 save_document, directory, document, revision, state["duration"]
             )
+            # T2 — le choix du preset motion persiste sur le clip (colonne T1).
+            await service.clip_repo.set_motion_preset(
+                db, clip_id, document.motion_preset
+            )
+            return saved
     except RevisionConflict as exc:
         raise HTTPException(409, str(exc))
     except (ValueError, ValidationError) as exc:

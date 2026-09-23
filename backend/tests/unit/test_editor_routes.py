@@ -17,7 +17,10 @@ async def client(tmp_path, monkeypatch):
     clip = {"id": "clip", "task_id": "task", "filename": "clip.mp4"}
     service = SimpleNamespace(
         task_repo=SimpleNamespace(get_task_by_id=AsyncMock(return_value=task)),
-        clip_repo=SimpleNamespace(get_clip_by_id=AsyncMock(return_value=clip)),
+        clip_repo=SimpleNamespace(
+            get_clip_by_id=AsyncMock(return_value=clip),
+            set_motion_preset=AsyncMock(),
+        ),
         config=SimpleNamespace(temp_dir=str(tmp_path)),
     )
     monkeypatch.setattr(editor, "TaskService", lambda db: service)
@@ -91,6 +94,20 @@ async def test_revision_and_basis_prevent_stale_writes(client):
     assert (
         await http.patch("/tasks/task/clips/clip/editor", json=payload)
     ).status_code == 400
+
+
+async def test_motion_preset_persists_on_save(client):
+    http, service, doc, directory = client
+    payload = {
+        "basis": "clip.mp4",
+        "revision": 0,
+        "document": {**doc, "motion_preset": "calme", "progress_bar": False},
+    }
+    assert (await http.patch("/tasks/task/clips/clip/editor", json=payload)).json()[
+        "revision"
+    ] == 1
+    service.clip_repo.set_motion_preset.assert_awaited_once()
+    assert service.clip_repo.set_motion_preset.await_args.args[1:] == ("clip", "calme")
 
 
 async def test_export_snapshot_cancel_and_private_download(client):

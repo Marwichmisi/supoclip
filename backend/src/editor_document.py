@@ -88,6 +88,10 @@ class EditDocument(Model):
     effects: Effects = Field(default_factory=Effects)
     volume: float = Field(default=1, ge=0, le=2)
     muted: bool = False
+    # T2 — Preset motion (defaut Energie, spec #12) et progress-bar
+    # (active par defaut, opt-out editeur).
+    motion_preset: Literal["calme", "energie"] = "energie"
+    progress_bar: bool = True
 
     def validate_duration(self, duration: float):
         if any(s.end > duration + 0.05 for s in self.segments):
@@ -157,19 +161,25 @@ def output_size(document: EditDocument, width: int, height: int):
     return max(2, int(width * scale) // 2 * 2), max(2, int(height * scale) // 2 * 2)
 
 
-def mapped_words(document: EditDocument):
+def mapped_words(document: EditDocument, shift_per_segment: float = 0.0):
+    """Mots projetes sur la timeline assemblee.
+
+    shift_per_segment decale chaque segment source (utilise par le rendu
+    avec transitions : le chevauchement xfade raccourcit la sortie).
+    """
     result = []
     cursor = 0.0
     ordered_words = sorted(document.words, key=lambda w: w.start)
-    for segment in document.segments:
+    for index, segment in enumerate(document.segments):
+        shift = index * shift_per_segment
         for word in ordered_words:
             start, end = max(segment.start, word.start), min(segment.end, word.end)
             if end > start and word.text.strip():
                 result.append(
                     {
                         **word.model_dump(),
-                        "start": cursor + start - segment.start,
-                        "end": cursor + end - segment.start,
+                        "start": cursor + start - segment.start - shift,
+                        "end": cursor + end - segment.start - shift,
                     }
                 )
         cursor += segment.end - segment.start
@@ -188,7 +198,13 @@ def caption_groups(words: list[dict], count: int):
     return groups
 
 
-def write_ass(path: Path, document: EditDocument, width: int, height: int):
+def write_ass(
+    path: Path,
+    document: EditDocument,
+    width: int,
+    height: int,
+    shift_per_segment: float = 0.0,
+):
     from .clip_editor import _ass_color, _ass_timestamp, _escape_ass_text
     from .font_registry import get_font_family_name, find_font_path
 
@@ -211,7 +227,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 """
     lines = []
     if style.enabled:
-        for group in caption_groups(mapped_words(document), style.wordsPerLine):
+        words = mapped_words(document, shift_per_segment)
+        for group in caption_groups(words, style.wordsPerLine):
             text = " ".join(
                 "{\\c"
                 + _ass_color(style.accent if word["highlight"] else style.color)
@@ -276,11 +293,26 @@ def run_render(command: list[str], directory: Path, job_id: str, duration: float
 
 def render_document(directory: Path, job_id: str, document: EditDocument, preset: str):
     from .clip_editor import _ffprobe_size, _escape_filter_path
+    from .motion_presets import (
+        PROGRESS_BAR_BACK_COLOR,
+        PROGRESS_BAR_HEIGHT,
+        resolve_motion_preset,
+    )
     from .video_utils import ass_fonts_dir
 
     source = directory / "clean.mp4"
     sw, sh = _ffprobe_size(source)
     width, height = output_size(document, sw, sh)
+    # T2 — preset motion (defaut Energie) : punch-in, transitions, progress-bar.
+    motion = resolve_motion_preset(document.motion_preset)
+    durations = [segment.end - segment.start for segment in document.segments]
+    chained = len(document.segments) > 1
+    # Le chevauchement xfade ne peut pas depasser la moitie du segment
+    # le plus court, sinon l'offset devient negatif.
+    overlap = (
+        min(motion["transition_duration"], min(durations) / 2) if chained else 0.0
+    )
+    total = sum(durations) - overlap * (len(document.segments) - 1)
     framing, fx = document.framing, document.effects
     scale = (max if framing.fit == "cover" else min)(
         width / sw, height / sh
@@ -313,28 +345,97 @@ def render_document(directory: Path, job_id: str, document: EditDocument, preset
         check=True,
     )
     audio = bool(probe.stdout.strip())
+    rate = subprocess.run(
+        [
+            "ffprobe",
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=r_frame_rate",
+            "-of",
+            "csv=p=0",
+            str(source),
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    try:
+        numerator, denominator = rate.split("/")
+        fps = float(numerator) / float(denominator)
+    except (ValueError, ZeroDivisionError):
+        fps = 30.0
     filters, joins = [], []
     for index, segment in enumerate(document.segments):
         filters.append(
-            f"[0:v]trim=start={segment.start}:end={segment.end},setpts=PTS-STARTPTS[v{index}]"
+            f"[0:v]trim=start={segment.start}:end={segment.end},setpts=PTS-STARTPTS,"
+            f"format=yuv420p,settb=AVTB[v{index}]"
         )
-        joins.append(f"[v{index}]")
         if audio:
+            # Resample seulement en chaine xfade (acrossfade exige des
+            # parametres audio identiques) ; le cas 1 segment reste intact.
+            resample = ",aresample=48000,aformat=channel_layouts=stereo" if chained else ""
             filters.append(
-                f"[0:a]atrim=start={segment.start}:end={segment.end},asetpts=PTS-STARTPTS[a{index}]"
+                f"[0:a]atrim=start={segment.start}:end={segment.end},"
+                f"asetpts=PTS-STARTPTS{resample}[a{index}]"
             )
-            joins.append(f"[a{index}]")
-    filters.append(
-        "".join(joins)
-        + f"concat=n={len(document.segments)}:v=1:a={int(audio)}[video]"
-        + ("[audio]" if audio else "")
-    )
+    if not chained:
+        for index in range(len(document.segments)):
+            joins.append(f"[v{index}]")
+            if audio:
+                joins.append(f"[a{index}]")
+        filters.append(
+            "".join(joins)
+            + f"concat=n={len(document.segments)}:v=1:a={int(audio)}[video]"
+            + ("[audio]" if audio else "")
+        )
+    else:
+        kind, length = motion["transition"], f"{overlap:g}"
+        video, previous = "v0", None
+        for position in range(1, len(document.segments)):
+            # offset_k = duree du flux accumule - chevauchement.
+            offset = sum(durations[:position]) - overlap * position
+            output = f"x{position - 1}" if position < len(document.segments) - 1 else "video"
+            filters.append(
+                f"[{video}][v{position}]xfade=transition={kind}:duration={length}:"
+                f"offset={offset:g}[{output}]"
+            )
+            video = output
+            if audio:
+                out = f"n{position - 1}" if position < len(document.segments) - 1 else "audio"
+                first = previous or "a0"
+                filters.append(f"[{first}][a{position}]acrossfade=d={length}[{out}]")
+                previous = out
     ass = directory / f"captions-{job_id}.ass"
-    write_ass(ass, document, width, height)
+    write_ass(ass, document, width, height, overlap)
     fonts = ass_fonts_dir(document.captions.font)
-    filters.append(
-        f"[video]{geometry},{effects},ass='{_escape_filter_path(ass)}':fontsdir='{_escape_filter_path(fonts or Path('fonts'))}'[outv]"
+    # Punch-in : crop anime centre 1.0 -> fin du preset sur la duree
+    # assemblee (d=1 : une image sortie par image entree, fps inchange).
+    # zoompan hors plans trackes, meme pattern que le kenburns batch
+    # (reframing.kenburns_zoom_fragment) : le rendu editeur ne suit
+    # aucun visage, donc aucun double mouvement.
+    frames = max(1, round(total * fps))
+    zoom = f"{motion['punch_in_start']:g}+({motion['punch_in_end'] - motion['punch_in_start']:g})*on/{frames}"
+    punch = (
+        f"zoompan=z='{zoom}':x='(iw-iw/zoom)/2':y='(ih-ih/zoom)/2':"
+        f"d=1:s={width}x{height}:fps={fps:g}"
     )
+    chain = f"[video]{geometry},{effects},{punch},ass='{_escape_filter_path(ass)}':fontsdir='{_escape_filter_path(fonts or Path('fonts'))}'"
+    if document.progress_bar:
+        # Progress-bar en surimpression : fond blanc a 40%, premier plan
+        # couleur highlight, duree calculee apres assemblage. Hauteur
+        # 8px a 1080p, proportionnelle sinon.
+        bar_h = max(2, round(height * PROGRESS_BAR_HEIGHT / 1920))
+        highlight = "0x" + document.captions.accent.lstrip("#")
+        chain += (
+            f",drawbox=x=0:y=ih-{bar_h}:w=iw:h={bar_h}:"
+            f"color={PROGRESS_BAR_BACK_COLOR}:t=fill"
+            f",drawbox=x=0:y=ih-{bar_h}:w='max(2,iw*t/{total:g})':"
+            f"h={bar_h}:color={highlight}:t=fill"
+        )
+    filters.append(chain + "[outv]")
     if audio:
         filters.append(
             f"[audio]volume={0 if document.muted else document.volume}[outa]"
@@ -370,9 +471,7 @@ def render_document(directory: Path, job_id: str, document: EditDocument, preset
         str(output),
     ]
     try:
-        run_render(
-            command, directory, job_id, sum(s.end - s.start for s in document.segments)
-        )
+        run_render(command, directory, job_id, total)
         if (directory / f"cancel-{job_id}").exists():
             raise InterruptedError("Export cancelled")
     except BaseException:

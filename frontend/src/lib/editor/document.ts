@@ -43,6 +43,8 @@ export interface EditDocument {
   effects: Effects;
   volume: number;
   muted: boolean;
+  motionPreset: "calme" | "energie";
+  progressBar: boolean;
 }
 export interface ExportJob {
   id: string;

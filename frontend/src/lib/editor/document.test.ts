@@ -59,4 +59,11 @@ describe("non-destructive edits", () => {
       ),
     ).toEqual({ width: 1280, height: 720 });
   });
+  it("carries motion defaults without changing edit math", () => {
+    expect(draft.motionPreset).toBe("energie");
+    expect(draft.progressBar).toBe(true);
+    const calm = { ...draft, motionPreset: "calme" as const, progressBar: false };
+    expect(editDuration(calm)).toBeCloseTo(3);
+    expect(mappedWords(calm)).toHaveLength(3);
+  });
 });

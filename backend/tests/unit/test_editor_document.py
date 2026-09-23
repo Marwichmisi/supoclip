@@ -136,7 +136,9 @@ def test_real_render_preserves_cuts_dimensions_and_audio(tmp_path, audio):
     )
     video = next(s for s in probe["streams"] if s["codec_type"] == "video")
     assert (video["width"], video["height"]) == (320, 180)
-    assert float(probe["format"]["duration"]) == pytest.approx(1.5, abs=0.1)
+    # T2 : transition Energie par defaut (overlap 0.25s, clampe par le
+    # segment de 0.5s) au lieu des coupes dures (1.5s).
+    assert float(probe["format"]["duration"]) == pytest.approx(1.25, abs=0.1)
     assert any(s["codec_type"] == "audio" for s in probe["streams"]) == audio
     if audio:
         import numpy as np
@@ -158,6 +160,16 @@ def test_real_render_preserves_cuts_dimensions_and_audio(tmp_path, audio):
             check=True,
         ).stdout
         assert float(np.max(np.abs(np.frombuffer(pcm, dtype="float32")))) < 0.001
+
+
+def test_motion_defaults_and_validation():
+    doc = document()
+    assert doc.motion_preset == "energie"
+    assert doc.progress_bar is True
+    assert document(motion_preset="calme").motion_preset == "calme"
+    assert document(progress_bar=False).progress_bar is False
+    with pytest.raises(ValidationError):
+        document(motion_preset="hype")
 
 
 def test_cancelled_render_does_not_publish_output(tmp_path):

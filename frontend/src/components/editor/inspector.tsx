@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState, type ReactNode } from "react";
 import {
+  Activity,
   AlignCenter,
   Bookmark,
   Captions,
@@ -41,10 +42,11 @@ import {
 } from "@/lib/editor/document";
 import { cn } from "@/lib/utils";
 import { Field, Panel, Range, Section } from "./studio-ui";
-export type InspectorTab = "captions" | "framing" | "audio" | "effects";
+export type InspectorTab = "captions" | "motion" | "framing" | "audio" | "effects";
 
 const TABS = [
   ["captions", "Captions", Captions],
+  ["motion", "Motion", Activity],
   ["framing", "Framing", Crop],
   ["audio", "Audio", Volume2],
   ["effects", "Effects", Palette],
@@ -136,7 +138,7 @@ export function Inspector({
         className="gap-0"
       >
         <div className="border-b p-2">
-          <TabsList className="grid w-full grid-cols-4 group-data-[orientation=horizontal]/tabs:h-auto">
+          <TabsList className="grid w-full grid-cols-5 group-data-[orientation=horizontal]/tabs:h-auto">
             {TABS.map(([id, label, Icon]) => (
               <TabsTrigger
                 key={id}
@@ -582,6 +584,54 @@ export function Inspector({
                 <Plus />
                 Add word at playhead
               </Button>
+            </Section>
+          </TabsContent>
+          <TabsContent value="motion" className="space-y-6 p-4">
+            <Section
+              title="Preset motion"
+              description="Calme glisse en douceur, Energie frappe avec des punch-ins marques."
+            >
+              <Field label="Preset">
+                <ToggleGroup
+                  type="single"
+                  variant="outline"
+                  aria-label="Motion preset"
+                  className="w-full"
+                  value={doc.motionPreset ?? "energie"}
+                  onValueChange={(motionPreset) =>
+                    motionPreset &&
+                    update(
+                      (d) => ({
+                        ...d,
+                        motionPreset:
+                          motionPreset as EditDocument["motionPreset"],
+                      }),
+                      "motion-preset",
+                    )
+                  }
+                >
+                  <ToggleGroupItem value="calme" className="flex-1 text-xs">
+                    Calme
+                  </ToggleGroupItem>
+                  <ToggleGroupItem value="energie" className="flex-1 text-xs">
+                    Energie
+                  </ToggleGroupItem>
+                </ToggleGroup>
+              </Field>
+            </Section>
+            <Separator />
+            <Section
+              title="Progress-bar"
+              description="Fine barre de progression en bas du clip, active par defaut."
+            >
+              <SwitchRow
+                id="progress-bar"
+                label="Afficher la progress-bar"
+                checked={doc.progressBar ?? true}
+                onChange={(progressBar) =>
+                  update((d) => ({ ...d, progressBar }), "progress-bar")
+                }
+              />
             </Section>
           </TabsContent>
           <TabsContent value="framing" className="space-y-6 p-4">

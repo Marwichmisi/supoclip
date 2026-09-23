@@ -77,6 +77,19 @@ CREATE TABLE tasks (
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
 
+-- T1 — Brand-kit : 1 kit par utilisateur en V1 (avant generated_clips pour la FK)
+CREATE TABLE IF NOT EXISTS brand_kits (
+    id VARCHAR(36) PRIMARY KEY DEFAULT uuid_generate_v4()::text,
+    user_id VARCHAR(36) NOT NULL UNIQUE REFERENCES users(id) ON DELETE CASCADE,
+    logo_path VARCHAR(500),
+    font_family VARCHAR(100),
+    primary_color VARCHAR(7),
+    secondary_color VARCHAR(7),
+    cta_text VARCHAR(200),
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+);
+
 -- Generated clips table
 CREATE TABLE generated_clips (
     id VARCHAR(36) PRIMARY KEY DEFAULT uuid_generate_v4()::text,
@@ -99,6 +112,13 @@ CREATE TABLE generated_clips (
     shareability_score INTEGER DEFAULT 0,
     hook_type VARCHAR(50),
     hook_title VARCHAR(200),         -- AI-written on-screen headline
+
+    -- T1 — Socle V1 (phase expand : nullables, nuls par defaut)
+    hook_variants TEXT,              -- JSON des 3 variantes hook
+    selected_hook_variant INTEGER,   -- index 0-2 de la variante choisie
+    template VARCHAR(50),            -- Template de sous-titres au niveau clip
+    preset VARCHAR(20),              -- preset motion Calme/Energie
+    brand_kit_id VARCHAR(36) REFERENCES brand_kits(id) ON DELETE SET NULL,
 
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -201,6 +221,8 @@ CREATE INDEX idx_processing_cache_source_url ON processing_cache(source_url);
 CREATE INDEX idx_generated_clips_task_id ON generated_clips(task_id);
 CREATE INDEX idx_generated_clips_clip_order ON generated_clips(clip_order);
 CREATE INDEX idx_generated_clips_created_at ON generated_clips(created_at);
+CREATE INDEX idx_brand_kits_user_id ON brand_kits(user_id);
+CREATE INDEX idx_generated_clips_brand_kit_id ON generated_clips(brand_kit_id);
 CREATE INDEX idx_session_token ON session(token);
 CREATE INDEX idx_session_userId ON session("userId");
 CREATE INDEX idx_account_userId ON account("userId");
@@ -235,6 +257,7 @@ CREATE TRIGGER update_users_updatedAt BEFORE UPDATE ON users FOR EACH ROW EXECUT
 CREATE TRIGGER update_tasks_updated_at BEFORE UPDATE ON tasks FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_sources_updated_at BEFORE UPDATE ON sources FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_generated_clips_updated_at BEFORE UPDATE ON generated_clips FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+CREATE TRIGGER update_brand_kits_updated_at BEFORE UPDATE ON brand_kits FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 CREATE TRIGGER update_app_settings_updated_at BEFORE UPDATE ON app_settings FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
 -- Better Auth tables use camelCase "updatedAt"

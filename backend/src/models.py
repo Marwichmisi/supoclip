@@ -273,6 +273,20 @@ class GeneratedClip(Base):
         Integer, nullable=True, server_default=sql_text("'0'")
     )
     hook_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    hook_title: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+
+    # T1 — Socle V1 (phase expand : nullables, nuls par defaut, sans comportement).
+    # Variantes hook (JSON des 3 titres), variante choisie (index 0-2),
+    # template et preset motion au niveau clip, reference vers le brand-kit.
+    hook_variants: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    selected_hook_variant: Mapped[Optional[int]] = mapped_column(
+        Integer, nullable=True
+    )
+    template: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    preset: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    brand_kit_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("brand_kits.id", ondelete="SET NULL"), nullable=True
+    )
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
@@ -283,6 +297,31 @@ class GeneratedClip(Base):
 
     # Relationships
     task: Mapped["Task"] = relationship("Task", back_populates="generated_clips")
+
+
+class BrandKit(Base):
+    """T1 — Kit de marque (1 kit par utilisateur en V1)."""
+
+    __tablename__ = "brand_kits"
+
+    id: Mapped[str] = mapped_column(
+        String(36), primary_key=True, default=generate_uuid_string
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    logo_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    font_family: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    primary_color: Mapped[Optional[str]] = mapped_column(String(7), nullable=True)
+    secondary_color: Mapped[Optional[str]] = mapped_column(String(7), nullable=True)
+    cta_text: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now()
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
 
 
 class ProcessingCache(Base):

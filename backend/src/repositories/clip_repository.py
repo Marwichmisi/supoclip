@@ -38,6 +38,11 @@ class ClipRepository:
         shareability_score: int = 0,
         hook_type: Optional[str] = None,
         hook_title: Optional[str] = None,
+        hook_variants: Optional[str] = None,
+        selected_hook_variant: Optional[int] = None,
+        template: Optional[str] = None,
+        preset: Optional[str] = None,
+        brand_kit_id: Optional[str] = None,
     ) -> str:
         """Create a new clip record and return its ID."""
         base_params = {
@@ -61,12 +66,12 @@ class ClipRepository:
                         (id, task_id, filename, file_path, start_time, end_time, duration,
                          text, relevance_score, reasoning, clip_order,
                          virality_score, hook_score, engagement_score, value_score, shareability_score, hook_type,
-                         hook_title, created_at)
+                         hook_title, hook_variants, selected_hook_variant, template, preset, brand_kit_id, created_at)
                         VALUES
                         (:id, :task_id, :filename, :file_path, :start_time, :end_time, :duration,
                          :text, :relevance_score, :reasoning, :clip_order,
                          :virality_score, :hook_score, :engagement_score, :value_score, :shareability_score, :hook_type,
-                         :hook_title, NOW())
+                         :hook_title, :hook_variants, :selected_hook_variant, :template, :preset, :brand_kit_id, NOW())
                         ON CONFLICT (task_id, clip_order) DO UPDATE SET
                             filename = EXCLUDED.filename,
                             file_path = EXCLUDED.file_path,
@@ -83,6 +88,11 @@ class ClipRepository:
                             shareability_score = EXCLUDED.shareability_score,
                             hook_type = EXCLUDED.hook_type,
                             hook_title = EXCLUDED.hook_title,
+                            hook_variants = EXCLUDED.hook_variants,
+                            selected_hook_variant = EXCLUDED.selected_hook_variant,
+                            template = EXCLUDED.template,
+                            preset = EXCLUDED.preset,
+                            brand_kit_id = EXCLUDED.brand_kit_id,
                             updated_at = NOW()
                         RETURNING id
                     """),
@@ -95,33 +105,85 @@ class ClipRepository:
                         "shareability_score": shareability_score,
                         "hook_type": hook_type,
                         "hook_title": hook_title,
+                        "hook_variants": hook_variants,
+                        "selected_hook_variant": selected_hook_variant,
+                        "template": template,
+                        "preset": preset,
+                        "brand_kit_id": brand_kit_id,
                     },
                 )
         except DBAPIError as exc:
             if getattr(exc.orig, "sqlstate", None) != "42703":
                 raise
-            result = await db.execute(
-                sa_text("""
-                    INSERT INTO generated_clips
-                    (id, task_id, filename, file_path, start_time, end_time, duration,
-                     text, relevance_score, reasoning, clip_order, created_at)
-                    VALUES
-                    (:id, :task_id, :filename, :file_path, :start_time, :end_time, :duration,
-                     :text, :relevance_score, :reasoning, :clip_order, NOW())
-                    ON CONFLICT (task_id, clip_order) DO UPDATE SET
-                        filename = EXCLUDED.filename,
-                        file_path = EXCLUDED.file_path,
-                        start_time = EXCLUDED.start_time,
-                        end_time = EXCLUDED.end_time,
-                        duration = EXCLUDED.duration,
-                        text = EXCLUDED.text,
-                        relevance_score = EXCLUDED.relevance_score,
-                        reasoning = EXCLUDED.reasoning,
-                        updated_at = NOW()
-                    RETURNING id
-                """),
-                base_params,
-            )
+            try:
+                async with db.begin_nested():
+                    result = await db.execute(
+                        sa_text("""
+                            INSERT INTO generated_clips
+                            (id, task_id, filename, file_path, start_time, end_time, duration,
+                             text, relevance_score, reasoning, clip_order,
+                             virality_score, hook_score, engagement_score, value_score, shareability_score, hook_type,
+                             hook_title, created_at)
+                            VALUES
+                            (:id, :task_id, :filename, :file_path, :start_time, :end_time, :duration,
+                             :text, :relevance_score, :reasoning, :clip_order,
+                             :virality_score, :hook_score, :engagement_score, :value_score, :shareability_score, :hook_type,
+                             :hook_title, NOW())
+                            ON CONFLICT (task_id, clip_order) DO UPDATE SET
+                                filename = EXCLUDED.filename,
+                                file_path = EXCLUDED.file_path,
+                                start_time = EXCLUDED.start_time,
+                                end_time = EXCLUDED.end_time,
+                                duration = EXCLUDED.duration,
+                                text = EXCLUDED.text,
+                                relevance_score = EXCLUDED.relevance_score,
+                                reasoning = EXCLUDED.reasoning,
+                                virality_score = EXCLUDED.virality_score,
+                                hook_score = EXCLUDED.hook_score,
+                                engagement_score = EXCLUDED.engagement_score,
+                                value_score = EXCLUDED.value_score,
+                                shareability_score = EXCLUDED.shareability_score,
+                                hook_type = EXCLUDED.hook_type,
+                                hook_title = EXCLUDED.hook_title,
+                                updated_at = NOW()
+                            RETURNING id
+                        """),
+                        {
+                            **base_params,
+                            "virality_score": virality_score,
+                            "hook_score": hook_score,
+                            "engagement_score": engagement_score,
+                            "value_score": value_score,
+                            "shareability_score": shareability_score,
+                            "hook_type": hook_type,
+                            "hook_title": hook_title,
+                        },
+                    )
+            except DBAPIError as exc2:
+                if getattr(exc2.orig, "sqlstate", None) != "42703":
+                    raise
+                result = await db.execute(
+                    sa_text("""
+                        INSERT INTO generated_clips
+                        (id, task_id, filename, file_path, start_time, end_time, duration,
+                         text, relevance_score, reasoning, clip_order, created_at)
+                        VALUES
+                        (:id, :task_id, :filename, :file_path, :start_time, :end_time, :duration,
+                         :text, :relevance_score, :reasoning, :clip_order, NOW())
+                        ON CONFLICT (task_id, clip_order) DO UPDATE SET
+                            filename = EXCLUDED.filename,
+                            file_path = EXCLUDED.file_path,
+                            start_time = EXCLUDED.start_time,
+                            end_time = EXCLUDED.end_time,
+                            duration = EXCLUDED.duration,
+                            text = EXCLUDED.text,
+                            relevance_score = EXCLUDED.relevance_score,
+                            reasoning = EXCLUDED.reasoning,
+                            updated_at = NOW()
+                        RETURNING id
+                    """),
+                    base_params,
+                )
         clip_id = result.scalar()
         if not clip_id:
             raise RuntimeError("Failed to create clip: no ID returned")
@@ -138,7 +200,7 @@ class ClipRepository:
                         SELECT id, filename, file_path, start_time, end_time, duration,
                                text, relevance_score, reasoning, clip_order, created_at,
                                virality_score, hook_score, engagement_score, value_score, shareability_score, hook_type,
-                               hook_title
+                               hook_title, hook_variants, selected_hook_variant, template, preset, brand_kit_id
                         FROM generated_clips
                         WHERE task_id = :task_id
                         ORDER BY clip_order ASC
@@ -148,16 +210,33 @@ class ClipRepository:
         except DBAPIError as exc:
             if getattr(exc.orig, "sqlstate", None) != "42703":
                 raise
-            result = await db.execute(
-                sa_text("""
-                    SELECT id, filename, file_path, start_time, end_time, duration,
-                           text, relevance_score, reasoning, clip_order, created_at
-                    FROM generated_clips
-                    WHERE task_id = :task_id
-                    ORDER BY clip_order ASC
-                """),
-                {"task_id": task_id},
-            )
+            try:
+                async with db.begin_nested():
+                    result = await db.execute(
+                        sa_text("""
+                            SELECT id, filename, file_path, start_time, end_time, duration,
+                                   text, relevance_score, reasoning, clip_order, created_at,
+                                   virality_score, hook_score, engagement_score, value_score, shareability_score, hook_type,
+                                   hook_title
+                            FROM generated_clips
+                            WHERE task_id = :task_id
+                            ORDER BY clip_order ASC
+                        """),
+                        {"task_id": task_id},
+                    )
+            except DBAPIError as exc2:
+                if getattr(exc2.orig, "sqlstate", None) != "42703":
+                    raise
+                result = await db.execute(
+                    sa_text("""
+                        SELECT id, filename, file_path, start_time, end_time, duration,
+                               text, relevance_score, reasoning, clip_order, created_at
+                        FROM generated_clips
+                        WHERE task_id = :task_id
+                        ORDER BY clip_order ASC
+                    """),
+                    {"task_id": task_id},
+                )
 
         clips = []
         for row in result.fetchall():
@@ -182,6 +261,11 @@ class ClipRepository:
                     "shareability_score": getattr(row, "shareability_score", 0) or 0,
                     "hook_type": getattr(row, "hook_type", None),
                     "hook_title": getattr(row, "hook_title", None),
+                    "hook_variants": getattr(row, "hook_variants", None),
+                    "selected_hook_variant": getattr(row, "selected_hook_variant", None),
+                    "template": getattr(row, "template", None),
+                    "preset": getattr(row, "preset", None),
+                    "brand_kit_id": getattr(row, "brand_kit_id", None),
                 }
             )
 
@@ -233,7 +317,7 @@ class ClipRepository:
                         SELECT id, task_id, filename, file_path, start_time, end_time, duration,
                                text, relevance_score, reasoning, clip_order,
                                virality_score, hook_score, engagement_score, value_score, shareability_score, hook_type,
-                               hook_title, created_at
+                               hook_title, hook_variants, selected_hook_variant, template, preset, brand_kit_id, created_at
                         FROM generated_clips
                         WHERE id = :clip_id
                         """
@@ -243,17 +327,35 @@ class ClipRepository:
         except DBAPIError as exc:
             if getattr(exc.orig, "sqlstate", None) != "42703":
                 raise
-            result = await db.execute(
-                sa_text(
-                    """
-                    SELECT id, task_id, filename, file_path, start_time, end_time, duration,
-                           text, relevance_score, reasoning, clip_order, created_at
-                    FROM generated_clips
-                    WHERE id = :clip_id
-                    """
-                ),
-                {"clip_id": clip_id},
-            )
+            try:
+                async with db.begin_nested():
+                    result = await db.execute(
+                        sa_text(
+                            """
+                            SELECT id, task_id, filename, file_path, start_time, end_time, duration,
+                                   text, relevance_score, reasoning, clip_order,
+                                   virality_score, hook_score, engagement_score, value_score, shareability_score, hook_type,
+                                   hook_title, created_at
+                            FROM generated_clips
+                            WHERE id = :clip_id
+                            """
+                        ),
+                        {"clip_id": clip_id},
+                    )
+            except DBAPIError as exc2:
+                if getattr(exc2.orig, "sqlstate", None) != "42703":
+                    raise
+                result = await db.execute(
+                    sa_text(
+                        """
+                        SELECT id, task_id, filename, file_path, start_time, end_time, duration,
+                               text, relevance_score, reasoning, clip_order, created_at
+                        FROM generated_clips
+                        WHERE id = :clip_id
+                        """
+                    ),
+                    {"clip_id": clip_id},
+                )
         row = result.fetchone()
         if not row:
             return None
@@ -277,6 +379,11 @@ class ClipRepository:
             "shareability_score": getattr(row, "shareability_score", 0) or 0,
             "hook_type": getattr(row, "hook_type", None),
             "hook_title": getattr(row, "hook_title", None),
+            "hook_variants": getattr(row, "hook_variants", None),
+            "selected_hook_variant": getattr(row, "selected_hook_variant", None),
+            "template": getattr(row, "template", None),
+            "preset": getattr(row, "preset", None),
+            "brand_kit_id": getattr(row, "brand_kit_id", None),
             "created_at": row.created_at.isoformat(),
             "video_url": f"/tasks/{row.task_id}/clips/{row.id}/file",
         }

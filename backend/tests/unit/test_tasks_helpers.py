@@ -45,6 +45,8 @@ def test_build_public_task_excludes_owner_and_file_system_fields():
                     "file_path": "/private/clip.mp4",
                     "clip_order": 1,
                     "text": "A shared transcript",
+                    "hook_variants": ["A", "B", "C"],
+                    "selected_hook_variant": 1,
                 }
             ],
         },
@@ -57,4 +59,9 @@ def test_build_public_task_excludes_owner_and_file_system_fields():
     assert "file_path" not in public_task["clips"][0]
     assert public_task["clips"][0]["video_url"] == (
         "/tasks/shared/token-1/clips/clip-1/file"
+    )
+    assert public_task["clips"][0]["hook_variants"] == ["A", "B", "C"]
+    assert public_task["clips"][0]["selected_hook_variant"] == 1
+    assert public_task["clips"][0]["cover_url"] == (
+        "/tasks/shared/token-1/clips/clip-1/cover"
     )

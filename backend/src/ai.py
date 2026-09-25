@@ -16,6 +16,7 @@ from pydantic import AliasChoices, BaseModel, Field, field_validator
 
 from .config import Config, get_config
 from .runtime_settings import apply_settings_to_process_env
+from .hook_variants import build_hook_variants, sanitize_hook_title
 
 logger = logging.getLogger(__name__)
 
@@ -23,9 +24,7 @@ IDEAL_CLIP_MIN_SECONDS = 25
 IDEAL_CLIP_MAX_SECONDS = 50
 MIN_ACCEPTED_CLIP_SECONDS = 15
 MAX_ACCEPTED_CLIP_SECONDS = 60
-TRANSCRIPT_ANALYSIS_CACHE_VERSION = "hook-titles-v5-grounded"
-HOOK_TITLE_MAX_CHARS = 64
-HOOK_TITLE_MAX_WORDS = 10
+TRANSCRIPT_ANALYSIS_CACHE_VERSION = "hook-titles-v6-variants"
 TRANSCRIPT_SPAN_RE = re.compile(
     r"^\[(?P<start>\d{1,2}:\d{2}(?::\d{2})?)\s*-\s*"
     r"(?P<end>\d{1,2}:\d{2}(?::\d{2})?)\]\s*(?P<text>.*)$"
@@ -163,6 +162,20 @@ class TranscriptSegment(BaseModel):
             "the segment content, no hashtags, no emojis, no surrounding quotes."
         ),
     )
+    hook_variants: List[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("hook_variants", "variants", "titles"),
+        description="Exactly three short French on-screen hook titles when available.",
+    )
+
+    @field_validator("hook_variants", mode="before")
+    @classmethod
+    def _coerce_hook_variants(cls, value: Any) -> Any:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            return [value]
+        return value
 
     @field_validator("relevance_score", mode="before")
     @classmethod
@@ -233,7 +246,8 @@ OUTPUT CONTRACT:
 - Return valid JSON only. Do not output Markdown, headings, bullets, prose, code fences, explanations, or commentary outside the JSON object.
 - The top-level JSON object must include: "most_relevant_segments", "summary", and "key_topics".
 - Only include "broll_opportunities" when B-roll was requested.
-- Each item in "most_relevant_segments" must include: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", and "hook_title".
+- Each item in "most_relevant_segments" must include: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", "hook_title", and "hook_variants".
+- "hook_variants" must be an array of exactly three distinct French titles; the first title must equal "hook_title".
 - Do not use "segment" as an output field. Use "text".
 - "virality" must include: "hook_score", "engagement_score", "value_score", "shareability_score", "total_score", "hook_type", and "virality_reasoning".
 - Every returned segment must be 15-60 seconds long. Prefer 25-50 seconds.
@@ -304,13 +318,15 @@ For each segment, provide a detailed virality breakdown:
    - 10-14: Nice but not share-worthy
    - 0-9: Generic content
 
-HOOK TITLES ("hook_title" per segment):
+HOOK TITLES ("hook_title" and "hook_variants" per segment):
 - Write a short on-screen headline (3-9 words) that is burned into the top of the clip
-- It must make a scrolling viewer stop: a bold claim, curiosity gap, number, or stakes taken directly from the segment
+- Return exactly three distinct headline variants in "hook_variants"; the first one must equal "hook_title"
+- Each variant must be written in French, even when the transcript is in another language
+- Each variant must make a scrolling viewer stop: a bold claim, curiosity gap, number, or stakes taken directly from the segment
 - Stay grounded: only promise what the clip actually delivers; never invent facts or numbers
 - Do not simply repeat the first spoken words verbatim; reframe them as a headline
 - Plain text only: no hashtags, no emojis, no quotes around the title
-- Good examples: "The $40k mistake I keep seeing", "Why nobody tells you this about VC", "Do this before your next interview"
+- Good examples: "L'erreur à 40 000 euros que je vois partout", "Pourquoi personne ne vous parle de cela", "À faire avant votre prochain entretien"
 
 HOOK TYPES to identify:
 - "question": Opens with a question that creates curiosity
@@ -517,44 +533,15 @@ JSON-only output requirements:
 - Return one valid JSON object and nothing else.
 - No Markdown, headings, bullets, code fences, or explanatory text outside JSON.
 - Top-level keys: "most_relevant_segments", "summary", "key_topics"{', "broll_opportunities"' if include_broll else ''}.
-- Segment keys: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", "hook_title".
+- Segment keys: "start_time", "end_time", "text", "relevance_score", "reasoning", "virality", "hook_title", "hook_variants".
 - "hook_title" is a 3-9 word plain-text headline for the clip, grounded in the segment (no hashtags, emojis, or quotes).
+- "hook_variants" is an array of exactly three distinct grounded French headlines; its first item must equal "hook_title".
+- Write every hook title in French, even when the transcript uses another language.
 - Virality keys: "hook_score", "engagement_score", "value_score", "shareability_score", "total_score", "hook_type", "virality_reasoning".
 - Do not return segments shorter than {MIN_ACCEPTED_CLIP_SECONDS} seconds or longer than {MAX_ACCEPTED_CLIP_SECONDS} seconds.
 
 Transcript:
 {transcript}"""
-
-
-def sanitize_hook_title(raw: Optional[str]) -> Optional[str]:
-    """Normalize an AI-provided hook title for on-screen rendering.
-
-    Strips wrapping quotes/markdown, collapses whitespace, drops hashtags, and
-    trims to a word-boundary length cap. Returns None when nothing usable is
-    left so callers can simply skip the overlay.
-    """
-    if not raw:
-        return None
-    title = str(raw).strip()
-    title = title.strip("\"'`“”‘’").strip()
-    title = re.sub(r"#\w+", "", title)
-    title = re.sub(r"\s+", " ", title).strip()
-    # Drop trailing sentence punctuation but keep ?/! (they carry the hook).
-    title = title.rstrip(".,;:-–— ").strip()
-    if not title:
-        return None
-
-    words = title.split()
-    if len(words) > HOOK_TITLE_MAX_WORDS:
-        words = words[:HOOK_TITLE_MAX_WORDS]
-        title = " ".join(words)
-    if len(title) > HOOK_TITLE_MAX_CHARS:
-        clipped = title[: HOOK_TITLE_MAX_CHARS + 1]
-        cut = clipped.rfind(" ")
-        title = (clipped[:cut] if cut > 20 else title[:HOOK_TITLE_MAX_CHARS]).rstrip(
-            ".,;:-–— "
-        )
-    return title or None
 
 
 def _parse_transcript_timestamp_seconds(timestamp: str) -> int:
@@ -824,7 +811,13 @@ async def get_most_relevant_parts_by_transcript(
                         )
                         segment.virality.total_score = calculated_total
 
-                segment.hook_title = sanitize_hook_title(segment.hook_title)
+                segment.hook_variants = build_hook_variants(
+                    segment.hook_title,
+                    segment.text,
+                    segment.virality.hook_type if segment.virality else None,
+                    segment.hook_variants,
+                )
+                segment.hook_title = segment.hook_variants[0]
 
                 validated_segments.append(segment)
                 virality_info = (

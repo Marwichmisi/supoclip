@@ -5,6 +5,8 @@ Clip repository - handles all database operations for generated clips.
 from .edit_transaction import commit_unless_editing
 from sqlalchemy.exc import DBAPIError
 
+from ..hook_variants import deserialize_hook_variants, serialize_hook_variants
+
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text as sa_text
@@ -13,6 +15,12 @@ import logging
 from uuid import uuid4
 
 logger = logging.getLogger(__name__)
+
+
+def _stored_hook_variants(value: Any) -> Optional[str]:
+    if value is None or isinstance(value, str):
+        return value
+    return serialize_hook_variants(value)
 
 
 class ClipRepository:
@@ -38,7 +46,7 @@ class ClipRepository:
         shareability_score: int = 0,
         hook_type: Optional[str] = None,
         hook_title: Optional[str] = None,
-        hook_variants: Optional[str] = None,
+        hook_variants: Optional[Any] = None,
         selected_hook_variant: Optional[int] = None,
         template: Optional[str] = None,
         preset: Optional[str] = None,
@@ -105,7 +113,7 @@ class ClipRepository:
                         "shareability_score": shareability_score,
                         "hook_type": hook_type,
                         "hook_title": hook_title,
-                        "hook_variants": hook_variants,
+                        "hook_variants": _stored_hook_variants(hook_variants),
                         "selected_hook_variant": selected_hook_variant,
                         "template": template,
                         "preset": preset,
@@ -261,7 +269,9 @@ class ClipRepository:
                     "shareability_score": getattr(row, "shareability_score", 0) or 0,
                     "hook_type": getattr(row, "hook_type", None),
                     "hook_title": getattr(row, "hook_title", None),
-                    "hook_variants": getattr(row, "hook_variants", None),
+                    "hook_variants": deserialize_hook_variants(
+                        getattr(row, "hook_variants", None)
+                    ),
                     "selected_hook_variant": getattr(row, "selected_hook_variant", None),
                     "template": getattr(row, "template", None),
                     "preset": getattr(row, "preset", None),
@@ -379,7 +389,9 @@ class ClipRepository:
             "shareability_score": getattr(row, "shareability_score", 0) or 0,
             "hook_type": getattr(row, "hook_type", None),
             "hook_title": getattr(row, "hook_title", None),
-            "hook_variants": getattr(row, "hook_variants", None),
+            "hook_variants": deserialize_hook_variants(
+                getattr(row, "hook_variants", None)
+            ),
             "selected_hook_variant": getattr(row, "selected_hook_variant", None),
             "template": getattr(row, "template", None),
             "preset": getattr(row, "preset", None),
@@ -404,6 +416,43 @@ class ClipRepository:
                     """
                 ),
                 {"clip_id": clip_id, "preset": preset},
+            )
+            await commit_unless_editing(db)
+        except DBAPIError as exc:
+            if getattr(exc.orig, "sqlstate", None) != "42703":
+                raise
+
+    @staticmethod
+    async def set_hook_selection(
+        db: AsyncSession,
+        clip_id: str,
+        hook_title: str,
+        selected_hook_variant: Optional[int],
+        hook_variants: Optional[Any] = None,
+    ) -> None:
+        """Persist the selected hook and its renderable title.
+
+        Older installations may not have the T1 columns yet; those databases
+        remain readable and the update is ignored just like ``set_motion_preset``.
+        """
+        try:
+            await db.execute(
+                sa_text(
+                    """
+                    UPDATE generated_clips
+                    SET hook_title = :hook_title,
+                        hook_variants = COALESCE(:hook_variants, hook_variants),
+                        selected_hook_variant = :selected_hook_variant,
+                        updated_at = NOW()
+                    WHERE id = :clip_id
+                    """
+                ),
+                {
+                    "clip_id": clip_id,
+                    "hook_title": hook_title,
+                    "hook_variants": _stored_hook_variants(hook_variants),
+                    "selected_hook_variant": selected_hook_variant,
+                },
             )
             await commit_unless_editing(db)
         except DBAPIError as exc:

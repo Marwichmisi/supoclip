@@ -108,6 +108,10 @@ Source file:
   - Merge clips
 - `PATCH /{task_id}/clips/{clip_id}/captions`
   - Update caption text or related settings
+- `PATCH /{task_id}/clips/{clip_id}/hook`
+  - Select one of the three generated hook variants with `variant_index`, or submit a free-form `hook_title`; both paths re-render from the source segments without re-transcription. The burned hook uses letter-by-letter kinetic typography during its opening window.
+- `GET /{task_id}/clips/{clip_id}/cover`
+  - Render and download a 1080x1920 JPEG cover
 - `POST /{task_id}/clips/{clip_id}/regenerate`
   - Re-render a clip
 - `GET /{task_id}/clips/{clip_id}/export`

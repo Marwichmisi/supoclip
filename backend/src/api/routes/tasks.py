@@ -32,6 +32,7 @@ from ...video_utils import VALID_OUTPUT_FORMATS
 from ...admin_auth import require_admin_user
 import redis.asyncio as redis
 from ...clip_editor import export_with_preset, EXPORT_PRESETS
+from ...cover import render_clip_cover
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -199,6 +200,9 @@ PUBLIC_CLIP_FIELDS = {
     "shareability_score",
     "hook_type",
     "hook_title",
+    "hook_variants",
+    "selected_hook_variant",
+    "cover_url",
 }
 
 
@@ -210,6 +214,9 @@ def _build_public_task(task: Dict[str, Any], share_token: str) -> Dict[str, Any]
         public_clip = {key: clip.get(key) for key in PUBLIC_CLIP_FIELDS}
         public_clip["video_url"] = (
             f"/tasks/shared/{share_token}/clips/{clip['id']}/file"
+        )
+        public_clip["cover_url"] = (
+            f"/tasks/shared/{share_token}/clips/{clip['id']}/cover"
         )
         public_task["clips"].append(public_clip)
     return public_task
@@ -417,6 +424,35 @@ async def get_shared_clip_file(
         media_type="video/mp4",
         filename=clip["filename"],
         content_disposition_type="inline",
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
+@router.get("/shared/{share_token}/clips/{clip_id}/cover")
+async def get_shared_clip_cover(
+    share_token: str,
+    clip_id: str,
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    """Serve a 1080x1920 cover for a clip behind an enabled share token."""
+    task_service = TaskService(db)
+    task_id = await task_service.task_repo.get_shared_task_id(db, share_token)
+    if not task_id:
+        raise HTTPException(status_code=404, detail="Shared result not found")
+
+    clip = await task_service.clip_repo.get_clip_by_id(db, clip_id)
+    if not clip or clip.get("task_id") != task_id:
+        raise HTTPException(status_code=404, detail="Clip not found")
+
+    clip_path = Path(clip["file_path"])
+    if not clip_path.exists():
+        raise HTTPException(status_code=404, detail="Clip file not found")
+    await db.close()
+    cover_path = await run_in_thread(render_clip_cover, clip_path)
+    return FileResponse(
+        path=str(cover_path),
+        media_type="image/jpeg",
+        filename=f"{Path(clip['filename']).stem}_cover.jpg",
         headers={"Cache-Control": "private, no-store"},
     )
 
@@ -709,6 +745,32 @@ async def get_clip_file(
         raise HTTPException(status_code=500, detail=f"Error serving clip file: {str(e)}")
 
 
+@router.get("/{task_id}/clips/{clip_id}/cover")
+async def get_clip_cover(
+    task_id: str,
+    clip_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db, scope="function"),
+):
+    """Render and serve a downloadable 1080x1920 cover for an owned clip."""
+    task_service = TaskService(db)
+    await _require_task_owner(request, task_service, db, task_id)
+    clip = await task_service.clip_repo.get_clip_by_id(db, clip_id)
+    if not clip or clip.get("task_id") != task_id:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    clip_path = Path(clip["file_path"])
+    if not clip_path.exists():
+        raise HTTPException(status_code=404, detail="Clip file not found")
+    await db.close()
+    cover_path = await run_in_thread(render_clip_cover, clip_path)
+    return FileResponse(
+        path=str(cover_path),
+        media_type="image/jpeg",
+        filename=f"{Path(clip['filename']).stem}_cover.jpg",
+        headers={"Cache-Control": "private, no-store"},
+    )
+
+
 @router.patch("/{task_id}/clips/{clip_id}")
 async def trim_clip(
     task_id: str, clip_id: str, request: Request, db: AsyncSession = Depends(get_db)
@@ -785,6 +847,50 @@ async def merge_clips(
     except Exception as e:
         logger.error(f"Error merging clips: {e}")
         raise HTTPException(status_code=500, detail=f"Error merging clips: {str(e)}")
+
+
+@router.patch("/{task_id}/clips/{clip_id}/hook")
+async def update_clip_hook(
+    task_id: str,
+    clip_id: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """Select a hook variant or persist a hand-edited title and re-render it."""
+    try:
+        payload = await _read_json_object(request)
+        has_variant = "variant_index" in payload
+        has_title = "hook_title" in payload
+        if has_variant == has_title:
+            raise HTTPException(
+                status_code=400,
+                detail="Provide exactly one of variant_index or hook_title",
+            )
+        variant_index = payload.get("variant_index") if has_variant else None
+        if has_variant and (
+            isinstance(variant_index, bool) or not isinstance(variant_index, int)
+        ):
+            raise HTTPException(status_code=400, detail="variant_index must be an integer")
+        hook_title = payload.get("hook_title")
+        if has_title and (not isinstance(hook_title, str) or not hook_title.strip()):
+            raise HTTPException(status_code=400, detail="hook_title must not be empty")
+
+        task_service = TaskService(db)
+        await _require_task_owner(request, task_service, db, task_id)
+        updated_clip = await task_service.update_clip_hook(
+            task_id,
+            clip_id,
+            variant_index=variant_index if has_variant else None,
+            hook_title=hook_title if has_title else None,
+        )
+        return {"clip": updated_clip}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating clip hook: {e}")
+        raise HTTPException(status_code=500, detail=f"Error updating clip hook: {str(e)}")
 
 
 @router.patch("/{task_id}/clips/{clip_id}/captions")

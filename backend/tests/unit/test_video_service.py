@@ -66,25 +66,37 @@ async def test_process_video_complete_uses_fallback_when_ai_selects_no_segments(
         processing_mode="fast",
     )
 
-    assert result["segments_to_render"] == [
-        {
-            "start_time": "00:00",
-            "end_time": "00:30",
-            "text": "[00:00 - 00:01] hello",
-            "relevance_score": 0.25,
-            "reasoning": (
-                "AI analysis did not identify a strong standalone segment, "
-                "so SupoClip generated the first available portion of the video."
-            ),
-            "virality_score": 0,
-            "hook_score": 0,
-            "engagement_score": 0,
-            "value_score": 0,
-            "shareability_score": 0,
-            "hook_type": "fallback",
-            "hook_title": None,
-        }
-    ]
+    segment = result["segments_to_render"][0]
+    assert {key: segment[key] for key in (
+        "start_time",
+        "end_time",
+        "text",
+        "relevance_score",
+        "reasoning",
+        "virality_score",
+        "hook_score",
+        "engagement_score",
+        "value_score",
+        "shareability_score",
+        "hook_type",
+    )} == {
+        "start_time": "00:00",
+        "end_time": "00:30",
+        "text": "[00:00 - 00:01] hello",
+        "relevance_score": 0.25,
+        "reasoning": (
+            "AI analysis did not identify a strong standalone segment, "
+            "so SupoClip generated the first available portion of the video."
+        ),
+        "virality_score": 0,
+        "hook_score": 0,
+        "engagement_score": 0,
+        "value_score": 0,
+        "shareability_score": 0,
+        "hook_type": "fallback",
+    }
+    assert len(segment["hook_variants"]) == 3
+    assert segment["hook_title"] == segment["hook_variants"][0]
     analysis = json.loads(result["analysis_json"])
     assert analysis["most_relevant_segments"] == result["segments_to_render"]
 

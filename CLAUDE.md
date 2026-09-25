@@ -129,6 +129,8 @@ PostgreSQL 15. Schema in `init.sql`. Mixed naming conventions:
 | `src/workers/progress.py` | Real-time progress via Redis |
 | `src/ai.py` | Pydantic AI agents, system prompt, segment validation |
 | `src/video_utils.py` | Video processing, cropping, subtitles (~820 lines) |
+| `src/hook_variants.py` | Hook title normalization, selection, and three-variant fallback |
+| `src/cover.py` | 1080x1920 clip cover rendering |
 | `src/clip_editor.py` | Clip trim, split, merge, export presets |
 | `src/broll.py` | Pexels API B-roll integration |
 | `src/caption_templates.py` | Caption template system |
@@ -150,6 +152,8 @@ PostgreSQL 15. Schema in `init.sql`. Mixed naming conventions:
 - `POST /tasks/{id}/clips/{clip_id}/split` — Split at timestamp
 - `POST /tasks/{id}/clips/merge` — Merge selected clips
 - `PATCH /tasks/{id}/clips/{clip_id}/captions` — Update captions
+- `PATCH /tasks/{id}/clips/{clip_id}/hook` — Select a hook variant or edit the hook title and re-render
+- `GET /tasks/{id}/clips/{clip_id}/cover` — Download a 1080x1920 cover
 - `GET /tasks/{id}/clips/{clip_id}/export?preset=tiktok` — Export with platform preset
 
 **Media:**

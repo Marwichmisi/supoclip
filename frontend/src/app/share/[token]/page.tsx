@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
-import { AlertCircle, Download, Sparkles, Star, Zap } from "lucide-react";
+import { AlertCircle, Download, Image as ImageIcon, Sparkles, Star, Zap } from "lucide-react";
 
 import DynamicVideoPlayer from "@/components/dynamic-video-player";
 import { TranscriptPreview } from "@/components/transcript-preview";
@@ -26,6 +26,7 @@ interface SharedClip {
   clip_order: number;
   virality_score: number;
   hook_title: string | null;
+  cover_url?: string | null;
 }
 
 interface SharedTask {
@@ -75,6 +76,9 @@ export default function SharedGenerationPage() {
 
   const getClipUrl = (clipId: string) =>
     `/api/share/${encodeURIComponent(token)}/clips/${encodeURIComponent(clipId)}/file`;
+
+  const getCoverUrl = (clipId: string) =>
+    `/api/share/${encodeURIComponent(token)}/clips/${encodeURIComponent(clipId)}/cover`;
 
   if (isLoading) {
     return (
@@ -166,12 +170,20 @@ export default function SharedGenerationPage() {
                     {clip.text ? <TranscriptPreview text={clip.text} clipTitle={clip.hook_title} /> : null}
 
                     <div className="mt-auto pt-5">
-                      <Button asChild variant="outline">
-                        <a href={getClipUrl(clip.id)} download={clip.filename}>
-                          <Download className="h-4 w-4" />
-                          Download clip
-                        </a>
-                      </Button>
+                      <div className="flex flex-wrap gap-2">
+                        <Button asChild variant="outline">
+                          <a href={getClipUrl(clip.id)} download={clip.filename}>
+                            <Download className="h-4 w-4" />
+                            Download clip
+                          </a>
+                        </Button>
+                        <Button asChild variant="outline">
+                          <a href={getCoverUrl(clip.id)} download={`${clip.filename.replace(/\.mp4$/i, "")}_cover.jpg`}>
+                            <ImageIcon className="h-4 w-4" />
+                            Cover 1080×1920
+                          </a>
+                        </Button>
+                      </div>
                     </div>
                   </div>
                 </div>

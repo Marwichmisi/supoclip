@@ -40,6 +40,8 @@ def test_system_prompt_enforces_grounding_rules():
     assert "Do not use \"segment\" as an output field. Use \"text\"." in (
         transcript_analysis_system_prompt
     )
+    assert "exactly three" in transcript_analysis_system_prompt
+    assert "written in French" in transcript_analysis_system_prompt
 
 
 def test_build_transcript_analysis_prompt_requires_transcript_fidelity():

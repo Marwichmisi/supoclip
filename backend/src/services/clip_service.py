@@ -9,6 +9,7 @@ import logging
 from pathlib import Path
 import json
 import tempfile
+import uuid
 
 import redis.asyncio as redis
 
@@ -22,6 +23,7 @@ from ..video_utils import VALID_OUTPUT_FORMATS, parse_timestamp_to_seconds, crea
 from ..utils.async_helpers import run_in_thread
 from ..clip_cleanup import normalize_clip_cleanup_settings
 from ..clip_source_map import (
+    clip_source_map_path,
     load_clip_source_ranges,
     save_clip_source_ranges,
     save_clip_caption_settings,
@@ -31,6 +33,8 @@ from ..clip_source_map import (
     total_source_duration,
     trim_source_ranges,
 )
+from ..cover import cover_path_for_clip
+from ..hook_variants import resolve_segment_hook, sanitize_hook_title
 
 logger = logging.getLogger(__name__)
 
@@ -172,6 +176,8 @@ class ClipEditingMixin:
                     "shareability_score": clip.get("shareability_score", 0),
                     "hook_type": clip.get("hook_type"),
                     "hook_title": clip.get("hook_title"),
+                    "hook_variants": clip.get("hook_variants") or [],
+                    "selected_hook_variant": clip.get("selected_hook_variant"),
                 }
             )
 
@@ -211,6 +217,8 @@ class ClipEditingMixin:
                 shareability_score=clip_info.get("shareability_score", 0),
                 hook_type=clip_info.get("hook_type"),
                 hook_title=clip_info.get("hook_title"),
+                hook_variants=clip_info.get("hook_variants") or [],
+                selected_hook_variant=clip_info.get("selected_hook_variant"),
             )
             clip_ids.append(clip_id)
 
@@ -327,6 +335,8 @@ class ClipEditingMixin:
             shareability_score=clip.get("shareability_score", 0),
             hook_type=clip.get("hook_type"),
             hook_title=clip.get("hook_title"),
+            hook_variants=clip.get("hook_variants") or [],
+            selected_hook_variant=clip.get("selected_hook_variant"),
         )
 
         await self.clip_repo.reorder_task_clips(self.db, task_id)
@@ -387,6 +397,131 @@ class ClipEditingMixin:
 
 
     @serialized_task_edit
+    async def update_clip_hook(
+        self,
+        task_id: str,
+        clip_id: str,
+        *,
+        variant_index: Optional[int] = None,
+        hook_title: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Re-render a clip from its source ranges with a new hook title.
+
+        This path deliberately reuses the cached transcript and the persisted
+        source map. It never calls the transcription service, so changing a
+        variant or typing a custom title is a fast local render.
+        """
+        clip = await self.clip_repo.get_clip_by_id(self.db, clip_id)
+        if not clip or clip["task_id"] != task_id:
+            raise ValueError("Clip not found")
+        old_clip_path = Path(clip["file_path"])
+
+        variants, _ = resolve_segment_hook(clip)
+        if variant_index is not None:
+            if (
+                isinstance(variant_index, bool)
+                or not isinstance(variant_index, int)
+                or not 0 <= variant_index < len(variants)
+            ):
+                raise ValueError("Hook variant index must be between 0 and 2")
+            selected_index: Optional[int] = variant_index
+            title = variants[variant_index]
+        else:
+            title = sanitize_hook_title(hook_title)
+            if not title:
+                raise ValueError("Hook title is required")
+            selected_index = None
+
+        task = await self.task_repo.get_task_by_id(self.db, task_id)
+        if not task:
+            raise ValueError("Task not found")
+        source_video = await self._resolve_source_video_for_clip(task, clip)
+        if not source_video:
+            raise ValueError("The source video is no longer available")
+
+        source_ranges = self._get_clip_source_ranges(clip)
+        bounds = source_range_bounds(source_ranges)
+        if not bounds:
+            raise ValueError("Clip source timing is unavailable")
+
+        settings = await self._load_task_source_settings(task_id)
+        output_dir = Path(self.config.temp_dir) / "clips"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        base_path = output_dir / f"{clip_id}_hook_{uuid.uuid4().hex[:12]}.mp4"
+        caption_settings = load_clip_caption_settings(Path(clip["file_path"]))
+        rendered = await run_in_thread(
+            create_optimized_clip,
+            source_video,
+            bounds[0],
+            bounds[1],
+            base_path,
+            add_subtitles=(
+                False
+                if caption_settings
+                else settings.get("add_subtitles", True)
+            ),
+            font_family=task.get("font_family") or None,
+            font_size=task.get("font_size") or None,
+            font_color=task.get("font_color") or None,
+            caption_template=(
+                clip.get("template") or task.get("caption_template") or "default"
+            ),
+            output_format=settings.get("output_format", "vertical"),
+            keep_ranges=source_ranges,
+            hook_title=title,
+            extend_to_sentence=False,
+        )
+        if not rendered:
+            raise ValueError("Could not re-render the clip with this hook")
+
+        output_path = base_path
+        if caption_settings:
+            output_path = await run_in_thread(
+                overlay_custom_captions,
+                base_path,
+                output_dir,
+                clip.get("text") or "",
+                caption_settings.get("position", "bottom"),
+                caption_settings.get("highlight_words") or [],
+                font_family=task.get("font_family") or None,
+                font_size=caption_settings.get("font_size") or task.get("font_size"),
+                font_color=task.get("font_color") or None,
+                caption_template=(
+                    clip.get("template") or task.get("caption_template") or "default"
+                ),
+                transcript_video_path=source_video,
+                source_ranges=source_ranges,
+                position_y=caption_settings.get("position_y"),
+            )
+            base_path.unlink(missing_ok=True)
+
+        save_clip_source_ranges(output_path, source_ranges)
+        if caption_settings:
+            save_clip_caption_settings(output_path, caption_settings)
+        await self.clip_repo.update_clip(
+            self.db,
+            clip_id,
+            output_path.name,
+            str(output_path),
+            self._seconds_to_mmss(bounds[0]),
+            self._seconds_to_mmss(bounds[1]),
+            max(0.1, total_source_duration(source_ranges)),
+            clip.get("text") or "",
+        )
+        await self.clip_repo.set_hook_selection(
+            self.db,
+            clip_id,
+            title,
+            selected_index,
+            variants,
+        )
+        if old_clip_path != output_path and old_clip_path != source_video:
+            old_clip_path.unlink(missing_ok=True)
+            clip_source_map_path(old_clip_path).unlink(missing_ok=True)
+            cover_path_for_clip(old_clip_path).unlink(missing_ok=True)
+        return (await self.clip_repo.get_clip_by_id(self.db, clip_id)) or {}
+
+    @serialized_task_edit
     async def update_clip_captions(
         self,
         task_id: str,
@@ -410,37 +545,10 @@ class ClipEditingMixin:
         if not task:
             raise ValueError("Task not found")
 
-        transcript_video_path: Optional[Path] = None
-        source_url = task.get("source_url")
-        source_type = task.get("source_type")
-        processing_mode = (
-            task.get("processing_mode") or self.config.default_processing_mode
-        )
-        if source_url and source_type:
-            cache_entry = await self.cache_repo.get_cache(
-                self.db,
-                self._build_cache_key(source_url, source_type, processing_mode),
-            )
-            cached_video_path = cache_entry.get("video_path") if cache_entry else None
-            if cached_video_path:
-                transcript_video_path = Path(cached_video_path)
-            elif source_type != "youtube":
-                try:
-                    transcript_video_path = self.video_service.resolve_local_video_path(
-                        source_url
-                    )
-                except ValueError:
-                    transcript_video_path = None
-
         # Always render from the source; overlaying an already captioned clip
         # stacks old and new captions and compounds quality loss on every save.
-        if not transcript_video_path or not transcript_video_path.exists():
-            if source_type == "youtube" and source_url:
-                downloaded = await self.video_service.download_video(source_url)
-                transcript_video_path = Path(downloaded) if downloaded else None
-            elif source_url:
-                transcript_video_path = self.video_service.resolve_local_video_path(source_url)
-        if not transcript_video_path or not transcript_video_path.exists():
+        source_video = await self._resolve_source_video_for_clip(task, clip)
+        if not source_video:
             raise ValueError("The source video is no longer available. Upload it again to edit captions.")
 
         settings = await self._load_task_source_settings(task_id)
@@ -453,7 +561,7 @@ class ClipEditingMixin:
         with tempfile.TemporaryDirectory(prefix="caption_edit_", dir=output_dir) as temporary:
             clean_path = Path(temporary) / "clean.mp4"
             rendered = await run_in_thread(
-                create_optimized_clip, transcript_video_path, bounds[0], bounds[1], clean_path,
+                create_optimized_clip, source_video, bounds[0], bounds[1], clean_path,
                 add_subtitles=False,
                 output_format=settings.get("output_format", "vertical"),
                 keep_ranges=source_ranges,
@@ -473,7 +581,7 @@ class ClipEditingMixin:
                 font_size=font_size if font_size is not None else task.get("font_size") or None,
                 font_color=task.get("font_color") or None,
                 caption_template=task.get("caption_template") or "default",
-                transcript_video_path=transcript_video_path,
+                transcript_video_path=source_video,
                 source_ranges=source_ranges,
                 position_y=position_y,
             )
@@ -505,6 +613,46 @@ class ClipEditingMixin:
         secs = total % 60
         return f"{minutes:02d}:{secs:02d}"
 
+
+    async def _resolve_source_video_for_clip(
+        self, task: Dict[str, Any], clip: Dict[str, Any]
+    ) -> Optional[Path]:
+        """Locate the original media for a source-backed clip re-render."""
+        source_url = task.get("source_url")
+        source_type = task.get("source_type")
+        processing_mode = (
+            task.get("processing_mode") or self.config.default_processing_mode
+        )
+        transcript_video_path: Optional[Path] = None
+        if source_url and source_type:
+            cache_entry = await self.cache_repo.get_cache(
+                self.db,
+                self._build_cache_key(source_url, source_type, processing_mode),
+            )
+            cached_video_path = cache_entry.get("video_path") if cache_entry else None
+            if cached_video_path:
+                transcript_video_path = Path(cached_video_path)
+            elif source_type != "youtube":
+                try:
+                    transcript_video_path = self.video_service.resolve_local_video_path(
+                        source_url
+                    )
+                except ValueError:
+                    transcript_video_path = None
+
+        if not transcript_video_path or not transcript_video_path.exists():
+            if source_type == "youtube" and source_url:
+                downloaded = await self.video_service.download_video(
+                    source_url, task.get("id")
+                )
+                transcript_video_path = Path(downloaded) if downloaded else None
+            elif source_url:
+                transcript_video_path = self.video_service.resolve_local_video_path(
+                    source_url
+                )
+        if not transcript_video_path or not transcript_video_path.exists():
+            return None
+        return transcript_video_path
 
     @staticmethod
     def _get_clip_source_ranges(clip: Dict[str, Any]) -> list[tuple[float, float]]:

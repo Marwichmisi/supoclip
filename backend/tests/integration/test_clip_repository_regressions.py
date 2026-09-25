@@ -23,6 +23,40 @@ async def test_clip_repository_inserts_and_upserts_without_database_id_default(d
 
 
 @pytest.mark.asyncio
+async def test_hook_variants_round_trip_as_json_and_selection(db_session):
+    from src.repositories.clip_repository import ClipRepository
+
+    owner = await create_user(db_session)
+    source = await create_source(db_session)
+    task = await create_task(db_session, user_id=owner["id"], source_id=source["id"])
+    clip_id = await ClipRepository.create_clip(
+        db_session,
+        task_id=task["id"],
+        filename="hook.mp4",
+        file_path="/tmp/hook.mp4",
+        start_time="00:00",
+        end_time="00:20",
+        duration=20,
+        text="Un segment avec un hook",
+        relevance_score=0.9,
+        reasoning="Hook test",
+        clip_order=1,
+        hook_title="Variante A",
+        hook_variants=["Variante A", "Variante B", "Variante C"],
+        selected_hook_variant=0,
+    )
+
+    stored = await ClipRepository.get_clip_by_id(db_session, clip_id)
+    assert stored["hook_variants"] == ["Variante A", "Variante B", "Variante C"]
+    await ClipRepository.set_hook_selection(
+        db_session, clip_id, "Variante B", 1, stored["hook_variants"]
+    )
+    selected = await ClipRepository.get_clip_by_id(db_session, clip_id)
+    assert selected["hook_title"] == "Variante B"
+    assert selected["selected_hook_variant"] == 1
+
+
+@pytest.mark.asyncio
 async def test_splitting_first_clip_preserves_following_clips(db_session, tmp_path, monkeypatch):
     from src.config import Config
     from src.repositories.clip_repository import ClipRepository

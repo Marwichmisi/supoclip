@@ -34,6 +34,7 @@ from ..clip_source_map import (
     save_clip_source_ranges,
 )
 from ..ai import get_most_relevant_parts_by_transcript
+from ..hook_variants import build_hook_variants, resolve_segment_hook
 from ..config import get_config
 
 logger = logging.getLogger(__name__)
@@ -100,6 +101,9 @@ class VideoService:
         if len(transcript_preview) > 240:
             transcript_preview = f"{transcript_preview[:237]}..."
 
+        hook_variants = build_hook_variants(
+            None, transcript_preview, "statement"
+        )
         return {
             "start_time": "00:00",
             "end_time": seconds_to_mmss(fallback_duration),
@@ -115,7 +119,8 @@ class VideoService:
             "value_score": 0,
             "shareability_score": 0,
             "hook_type": "fallback",
-            "hook_title": None,
+            "hook_title": hook_variants[0],
+            "hook_variants": hook_variants,
         }
 
     @staticmethod
@@ -293,6 +298,7 @@ class VideoService:
                     cleanup_settings,
                 )
             keep_ranges = extend_keep_ranges_to_sentence_boundary(video_path, keep_ranges)
+            hook_variants, hook_title = resolve_segment_hook(segment)
 
             success = await run_in_thread(
                 create_optimized_clip,
@@ -307,7 +313,7 @@ class VideoService:
                 caption_template,
                 output_format,
                 keep_ranges,
-                segment.get("hook_title"),
+                hook_title,
             )
 
             if not success:
@@ -335,7 +341,9 @@ class VideoService:
                 "value_score": segment.get("value_score", 0),
                 "shareability_score": segment.get("shareability_score", 0),
                 "hook_type": segment.get("hook_type"),
-                "hook_title": segment.get("hook_title"),
+                "hook_title": hook_title,
+                "hook_variants": hook_variants,
+                "selected_hook_variant": segment.get("selected_hook_variant"),
                 "keep_ranges": keep_ranges,
             }
         except Exception as e:
@@ -539,6 +547,8 @@ class VideoService:
                         "shareability_score": virality.get("shareability_score", 0),
                         "hook_type": virality.get("hook_type"),
                         "hook_title": segment.get("hook_title"),
+                        "hook_variants": segment.get("hook_variants") or [],
+                        "selected_hook_variant": segment.get("selected_hook_variant"),
                     }
                 else:
                     virality = segment.virality.model_dump() if segment.virality else {}
@@ -555,11 +565,18 @@ class VideoService:
                         "shareability_score": virality.get("shareability_score", 0),
                         "hook_type": virality.get("hook_type"),
                         "hook_title": getattr(segment, "hook_title", None),
+                        "hook_variants": getattr(segment, "hook_variants", None) or [],
+                        "selected_hook_variant": getattr(
+                            segment, "selected_hook_variant", None
+                        ),
                     }
 
                 segment_payload["text"] = VideoService._ground_segment_text(
                     segment_payload,
                     transcript_data,
+                )
+                segment_payload["hook_variants"], segment_payload["hook_title"] = (
+                    resolve_segment_hook(segment_payload)
                 )
                 segments_json.append(segment_payload)
 
@@ -577,6 +594,14 @@ class VideoService:
                         runtime_config.clip_duration,
                     )
                 ]
+                fallback_segment = segments_json[0]
+                fallback_segment["hook_variants"] = build_hook_variants(
+                    fallback_segment.get("hook_title"),
+                    fallback_segment.get("text") or "",
+                    fallback_segment.get("hook_type"),
+                    fallback_segment.get("hook_variants") or [],
+                )
+                fallback_segment["hook_title"] = fallback_segment["hook_variants"][0]
 
             return {
                 "segments": segments_json,

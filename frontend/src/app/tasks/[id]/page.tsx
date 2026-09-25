@@ -53,6 +53,7 @@ import {
   Scissors,
   Settings2,
   Clapperboard,
+  Image as ImageIcon,
 } from "lucide-react";
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from "@/components/ui/tooltip";
 import { Progress } from "@/components/ui/progress";
@@ -60,6 +61,7 @@ import Link from "next/link";
 import DynamicVideoPlayer from "@/components/dynamic-video-player";
 import { TranscriptPreview } from "@/components/transcript-preview";
 import { FontSelectOption, type FontOption } from "@/components/font-select-option";
+import { HookVariantPicker } from "@/components/hook-variant-picker";
 
 interface Clip {
   id: string;
@@ -82,6 +84,9 @@ interface Clip {
   shareability_score: number;
   hook_type: string | null;
   hook_title: string | null;
+  hook_variants?: string[] | null;
+  selected_hook_variant?: number | null;
+  cover_url?: string | null;
 }
 
 interface TaskDetails {
@@ -500,6 +505,66 @@ export default function TaskPage() {
     void runAction(clip.id, () => handleExportClip(clip.id, clip.filename));
   };
 
+  const applyHookUpdate = (updatedClip: Clip) => {
+    setClips((current) =>
+      current.map((clip) => (clip.id === updatedClip.id ? { ...clip, ...updatedClip } : clip)),
+    );
+  };
+
+  const handleSelectHookVariant = async (clip: Clip, variantIndex: number) => {
+    if (!task?.id) return false;
+    try {
+      const response = await requestAction(
+        `${taskApiUrl}/${task.id}/clips/${clip.id}/hook`,
+        "PATCH",
+        { variant_index: variantIndex },
+      );
+      const payload = (await response.json()) as { clip?: Clip };
+      if (!payload.clip) throw new Error("The updated clip was not returned");
+      applyHookUpdate(payload.clip);
+      toast.success("Hook variant updated");
+      return true;
+    } catch (hookError) {
+      toast.error(hookError instanceof Error ? hookError.message : "Could not update the hook variant");
+      return false;
+    }
+  };
+
+  const handleSaveHookTitle = async (clip: Clip, hookTitle: string) => {
+    if (!task?.id) return false;
+    try {
+      const response = await requestAction(
+        `${taskApiUrl}/${task.id}/clips/${clip.id}/hook`,
+        "PATCH",
+        { hook_title: hookTitle },
+      );
+      const payload = (await response.json()) as { clip?: Clip };
+      if (!payload.clip) throw new Error("The updated clip was not returned");
+      applyHookUpdate(payload.clip);
+      toast.success("Hook title updated and clip re-rendered");
+      return true;
+    } catch (hookError) {
+      toast.error(hookError instanceof Error ? hookError.message : "Could not update the hook title");
+      return false;
+    }
+  };
+
+  const handleDownloadCover = async (clip: Clip) => {
+    if (!task?.id) return;
+    const coverUrl = clip.cover_url || `${taskApiUrl}/${task.id}/clips/${clip.id}/cover`;
+    try {
+      const response = await fetch(getClipUrl(coverUrl), {
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        throw new Error(await buildSupportError(response, "Failed to export cover"));
+      }
+      downloadBlob(await response.blob(), `${clip.filename.replace(/\.mp4$/i, "")}_cover.jpg`);
+    } catch (coverError) {
+      toast.error(coverError instanceof Error ? coverError.message : "Failed to export cover");
+    }
+  };
+
   const handleCopyShareLink = async () => {
     if (!task?.id || shareState === "copying") return;
 
@@ -791,6 +856,14 @@ export default function TaskPage() {
                                 <span>•</span>
                                 <span>{formatDuration(clip.duration)}</span>
                               </div>
+                              <HookVariantPicker
+                                variants={clip.hook_variants?.length ? clip.hook_variants : clip.hook_title ? [clip.hook_title] : []}
+                                selectedIndex={clip.selected_hook_variant ?? null}
+                                currentTitle={clip.hook_title}
+                                disabled={pendingAction !== null}
+                                onSelect={(index) => handleSelectHookVariant(clip, index)}
+                                onSaveTitle={(title) => handleSaveHookTitle(clip, title)}
+                              />
                             </div>
                             <div className="flex items-center gap-2">
                               {clip.virality_score > 0 && (
@@ -1073,6 +1146,14 @@ export default function TaskPage() {
                             <span>•</span>
                             <span>{formatDuration(clip.duration)}</span>
                           </div>
+                          <HookVariantPicker
+                            variants={clip.hook_variants?.length ? clip.hook_variants : clip.hook_title ? [clip.hook_title] : []}
+                            selectedIndex={clip.selected_hook_variant ?? null}
+                            currentTitle={clip.hook_title}
+                            disabled={pendingAction !== null}
+                            onSelect={(index) => handleSelectHookVariant(clip, index)}
+                            onSaveTitle={(title) => handleSaveHookTitle(clip, title)}
+                          />
                         </div>
                         <div className="flex items-center gap-2">
                           {/* Virality Score Badge */}
@@ -1194,6 +1275,16 @@ export default function TaskPage() {
 
                         <Button size="sm" variant="outline" asChild>
                           <Link href={`/tasks/${task.id}/edit?clip=${clip.id}`}><Scissors className="w-4 h-4" />Edit</Link>
+                        </Button>
+
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={pendingAction !== null}
+                          onClick={() => void handleDownloadCover(clip)}
+                        >
+                          <ImageIcon className="w-4 h-4" />
+                          Cover 1080×1920
                         </Button>
 
                         <Button

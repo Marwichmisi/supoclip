@@ -30,9 +30,10 @@ from ..youtube_utils import cleanup_downloaded_files, extract_video_id
 from ..clip_cleanup import normalize_clip_cleanup_settings
 from ..ai import TRANSCRIPT_ANALYSIS_CACHE_VERSION
 from ..clip_source_map import load_clip_caption_settings
+from ..hook_variants import resolve_segment_hook
 
 logger = logging.getLogger(__name__)
-PROCESSING_CACHE_VERSION = "20260319_grounded_segments_v1"
+PROCESSING_CACHE_VERSION = "20260925_hook_variants_v1"
 
 
 class TaskService(ClipEditingMixin):
@@ -397,6 +398,10 @@ class TaskService(ClipEditingMixin):
                         shareability_score=clip_info.get("shareability_score", 0),
                         hook_type=clip_info.get("hook_type"),
                         hook_title=clip_info.get("hook_title"),
+                        hook_variants=clip_info.get("hook_variants") or [],
+                        selected_hook_variant=(
+                            0 if clip_info.get("hook_variants") else None
+                        ),
                     )
 
                     # Update task's clip IDs array
@@ -612,13 +617,27 @@ class TaskService(ClipEditingMixin):
 
         # Get clips
         clips = await self.clip_repo.get_clips_by_task(self.db, task_id)
-        task["clips"] = [
-            {
-                **{key: value for key, value in clip.items() if key != "file_path"},
-                "caption_settings": load_clip_caption_settings(Path(clip["file_path"])) if clip.get("file_path") else None,
-            }
-            for clip in clips
-        ]
+        enriched_clips = []
+        for clip in clips:
+            hook_variants, hook_title = resolve_segment_hook(clip)
+            enriched_clips.append(
+                {
+                    **{
+                        key: value
+                        for key, value in clip.items()
+                        if key != "file_path"
+                    },
+                    "hook_variants": hook_variants,
+                    "hook_title": clip.get("hook_title") or hook_title,
+                    "cover_url": f"/tasks/{task_id}/clips/{clip['id']}/cover",
+                    "caption_settings": (
+                        load_clip_caption_settings(Path(clip["file_path"]))
+                        if clip.get("file_path")
+                        else None
+                    ),
+                }
+            )
+        task["clips"] = enriched_clips
         task["clips_count"] = len(clips)
         task.update(await self._load_task_source_settings(task_id))
 

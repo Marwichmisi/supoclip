@@ -34,6 +34,7 @@ from .media.timeline import (
     extend_keep_ranges_to_sentence_boundary,
     parse_timestamp_to_seconds,
 )
+from .hook_variants import resolve_segment_hook
 from .media.captions import (
     ass_fonts_dir,
     build_assemblyai_ass_subtitles,
@@ -437,6 +438,7 @@ def create_clips_from_segments(
                 )
             keep_ranges = extend_keep_ranges_to_sentence_boundary(video_path, keep_ranges)
 
+            hook_variants, hook_title = resolve_segment_hook(segment)
             success = create_optimized_clip(
                 video_path,
                 start_seconds,
@@ -449,7 +451,7 @@ def create_clips_from_segments(
                 caption_template,
                 output_format,
                 keep_ranges,
-                hook_title=segment.get("hook_title"),
+                hook_title=hook_title,
             )
 
             if success:
@@ -472,7 +474,9 @@ def create_clips_from_segments(
                     "value_score": segment.get("value_score", 0),
                     "shareability_score": segment.get("shareability_score", 0),
                     "hook_type": segment.get("hook_type"),
-                    "hook_title": segment.get("hook_title"),
+                    "hook_title": hook_title,
+                    "hook_variants": hook_variants,
+                    "selected_hook_variant": segment.get("selected_hook_variant"),
                     "keep_ranges": keep_ranges,
                 }
                 clips_info.append(clip_info)

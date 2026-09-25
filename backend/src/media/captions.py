@@ -2,6 +2,8 @@
 
 from typing import Any
 from typing import Dict
+import unicodedata
+import re
 from ..font_registry import FONTS_DIR
 from typing import List
 from typing import Optional
@@ -36,6 +38,64 @@ from .timeline import (
     get_words_for_keep_ranges,
     get_words_in_range,
 )
+
+
+_FRENCH_HOOK_KEYWORDS = {
+    "jamais",
+    "toujours",
+    "tout",
+    "rien",
+    "chacun",
+    "meilleur",
+    "pire",
+    "plus",
+    "grand",
+    "immense",
+    "seulement",
+    "premier",
+    "dernier",
+    "gratuit",
+    "aujourdhui",
+    "instantanement",
+    "secret",
+    "verite",
+    "fait",
+    "exactement",
+    "doit",
+    "besoin",
+    "arret",
+    "attention",
+    "danger",
+    "critique",
+    "essentiel",
+    "souviens",
+    "erreur",
+    "faux",
+    "parfait",
+    "ultime",
+    "reussite",
+    "resultat",
+    "resultats",
+    "efficace",
+    "impact",
+    "puissant",
+    "incroyable",
+    "choquant",
+    "million",
+    "milliard",
+    "pourcent",
+    "double",
+    "triple",
+}
+
+
+def _hook_keyword_token(value: str) -> str:
+    """Normalize accented French words before checking the hook keyword set."""
+    decomposed = unicodedata.normalize("NFKD", (value or "").casefold())
+    ascii_text = "".join(
+        character for character in decomposed if not unicodedata.combining(character)
+    )
+    return re.sub(r"[^a-z0-9]+", "", ascii_text)
 
 
 def get_scaled_font_size(base_font_size: int, video_width: int) -> int:
@@ -212,7 +272,7 @@ def build_hook_title_ass(
     The title sits in the top safe area (Alignment 8), styled off the caption
     template so it reads as part of the same design system: same font, an
     outline/backing for contrast, power words and numbers in the template's
-    highlight colour, and a quick fade+pop entrance.
+    highlight colour, and a letter-by-letter entrance limited to the hook.
     """
     uppercase = bool(template.get("uppercase"))
     title_text = hook_title.upper() if uppercase else hook_title
@@ -252,29 +312,62 @@ def build_hook_title_ass(
         f"1,0,0,0,100,100,0,0,{border_style},{outline_px},{shadow_px},8,60,60,{margin_v},1"
     )
 
-    # Accent power words / numbers in the template highlight colour.
-    rendered_lines: List[str] = []
-    for line in lines:
-        spans: List[str] = []
-        for word in line.split():
-            token = normalize_token(word)
-            accented = bool(token) and (token in POWER_WORDS or any(c.isdigit() for c in token))
+    # Keep a character stream so the hook can appear letter-by-letter. The
+    # highlight colour is carried with each character, which means keywords
+    # remain highlighted while the rest of the title types in.
+    title_characters: List[tuple[str, str]] = []
+    for line_index, line in enumerate(lines):
+        if line_index:
+            title_characters.append(("\\N", primary))
+        words = line.split()
+        for word_index, word in enumerate(words):
+            token = _hook_keyword_token(word)
+            accented = bool(token) and (
+                token in POWER_WORDS
+                or token in _FRENCH_HOOK_KEYWORDS
+                or any(c.isdigit() for c in token)
+            )
             color = highlight if accented else primary
-            spans.append(f"{{\\c{color}}}{escape_ass_text(word)}")
-        rendered_lines.append(" ".join(spans))
-    text = "\\N".join(rendered_lines)
+            for character in word:
+                title_characters.append((character, color))
+            if word_index < len(words) - 1:
+                title_characters.append((" ", primary))
 
     start = 0.12
     end = min(HOOK_TITLE_SECONDS, max(HOOK_TITLE_MIN_SECONDS, output_duration - 0.25))
     if output_duration <= HOOK_TITLE_MIN_SECONDS:
         start, end = 0.0, max(0.5, output_duration)
-    entrance = "\\fad(160,240)"
-    if template.get("word_pop", True):
-        entrance += "\\fscx90\\fscy90\\t(0,160,\\fscx100\\fscy100)"
-    events = [
-        f"Dialogue: 1,{ass_timestamp(start)},{ass_timestamp(end)},Hook,,0,0,0,,"
-        f"{{{entrance}}}{text}"
-    ]
+    if not title_characters:
+        return style_line, []
+
+    def render_prefix(character_count: int) -> str:
+        parts: List[str] = []
+        for character, color in title_characters[:character_count]:
+            if character == "\\N":
+                parts.append("\\N")
+            else:
+                parts.append(f"{{\\c{color}}}{escape_ass_text(character)}")
+        return "".join(parts)
+
+    step = min(0.09, max(0.025, (end - start) / len(title_characters)))
+    events: List[str] = []
+    for index in range(len(title_characters)):
+        event_start = start + index * step
+        event_end = (
+            end
+            if index == len(title_characters) - 1
+            else min(end, start + (index + 1) * step)
+        )
+        entrance = ""
+        if index == 0 and template.get("word_pop", True):
+            entrance = "\\fscx90\\fscy90\\t(0,160,\\fscx100\\fscy100)"
+        if index == len(title_characters) - 1:
+            entrance += "\\fad(120,180)"
+        events.append(
+            f"Dialogue: 1,{ass_timestamp(event_start)},"
+            f"{ass_timestamp(event_end)},Hook,,0,0,0,,"
+            f"{{{entrance}}}{render_prefix(index + 1)}"
+        )
     return style_line, events
 
 

@@ -1,1 +1,105 @@
-{"assets": [], "kind": "audio", "version": 1}
+{
+  "version": 1,
+  "kind": "audio",
+  "notes": "role/genre is carried by the leading 'bed' or 'sfx' keyword; the sfx keyword after 'sfx' is the cue kind resolved by src/media/sound.py (whoosh | pop | rise). published_at uses the precision the source actually publishes: kenney.nl dates its packs by year only, opengameart.org by day.",
+  "assets": [
+    {
+      "id": "oga-hernandack-just-saying-tho",
+      "path": "audio/bed/just-saying-tho.ogg",
+      "duration": 24.052104,
+      "license": "CC0 1.0 Universal (public domain dedication)",
+      "source_url": "https://opengameart.org/content/short-loops-background-music-pack",
+      "published_at": "2018-12-11",
+      "sha256": "842c81adb0ee3e2dae3cf6c0705fb2f553de1491de006297842b78b01b988d7b",
+      "keywords": [
+        "bed",
+        "musique-de-fond",
+        "dynamique"
+      ]
+    },
+    {
+      "id": "oga-hernandack-brand-new-wisdom",
+      "path": "audio/bed/brand-new-wisdom.ogg",
+      "duration": 16.625021,
+      "license": "CC0 1.0 Universal (public domain dedication)",
+      "source_url": "https://opengameart.org/content/short-loops-background-music-pack",
+      "published_at": "2018-12-11",
+      "sha256": "59b4c1d79dec8bbd98c70fa11dc5ec69deacf2e3da112b3ab48c77ade9f5199e",
+      "keywords": [
+        "bed",
+        "musique-de-fond",
+        "calme"
+      ]
+    },
+    {
+      "id": "oga-hernandack-swinging-sweet",
+      "path": "audio/bed/swinging-sweet.ogg",
+      "duration": 24.927896,
+      "license": "CC0 1.0 Universal (public domain dedication)",
+      "source_url": "https://opengameart.org/content/short-loops-background-music-pack",
+      "published_at": "2018-12-11",
+      "sha256": "6da688c61aa21ec1e4e2b02289dad1a2eb2d46d5e4ed7b3c8f680b195c3ca5a4",
+      "keywords": [
+        "bed",
+        "musique-de-fond",
+        "joyeux"
+      ]
+    },
+    {
+      "id": "kenney-interface-minimize-001",
+      "path": "audio/sfx/whoosh-1.ogg",
+      "duration": 0.258396,
+      "license": "CC0 1.0 Universal (public domain dedication)",
+      "source_url": "https://kenney.nl/assets/interface-sounds",
+      "published_at": "2020",
+      "sha256": "8d9f85a0edb2bbb178fe1c27e3a55f8e89dae233711900f3a8241cffaf6879ff",
+      "keywords": [
+        "sfx",
+        "whoosh",
+        "cut"
+      ]
+    },
+    {
+      "id": "kenney-interface-minimize-003",
+      "path": "audio/sfx/whoosh-2.ogg",
+      "duration": 0.211875,
+      "license": "CC0 1.0 Universal (public domain dedication)",
+      "source_url": "https://kenney.nl/assets/interface-sounds",
+      "published_at": "2020",
+      "sha256": "1c98a43146a77d23f70d39d14d57eeb2dc3be775dc285d3761cbc386beba264b",
+      "keywords": [
+        "sfx",
+        "whoosh",
+        "cut"
+      ]
+    },
+    {
+      "id": "kenney-interface-bong-001",
+      "path": "audio/sfx/pop-1.ogg",
+      "duration": 0.122833,
+      "license": "CC0 1.0 Universal (public domain dedication)",
+      "source_url": "https://kenney.nl/assets/interface-sounds",
+      "published_at": "2020",
+      "sha256": "e91754d6c2df237147432416569411c437717202daf08d8fe73ab431a137eb9f",
+      "keywords": [
+        "sfx",
+        "pop",
+        "hook"
+      ]
+    },
+    {
+      "id": "kenney-digital-powerup-003",
+      "path": "audio/sfx/rise-1.ogg",
+      "duration": 1.149396,
+      "license": "CC0 1.0 Universal (public domain dedication)",
+      "source_url": "https://kenney.nl/assets/digital-audio",
+      "published_at": "2012",
+      "sha256": "ef56978453138f8fe7e2ae616e42c1272a7f237cbcd5369db7bc704e321922bb",
+      "keywords": [
+        "sfx",
+        "rise",
+        "punchline"
+      ]
+    }
+  ]
+}

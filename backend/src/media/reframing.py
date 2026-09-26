@@ -37,6 +37,7 @@ from .ffmpeg import (
     run_ffmpeg_command,
     subtitles_filter_fragment,
 )
+from .sound import ClipSound, MixGraph, measure_loudness, mix_graph_for
 
 
 def detect_optimal_crop_region(
@@ -1122,6 +1123,12 @@ def kenburns_zoom_fragment(duration: float) -> Optional[str]:
     )
 
 
+#: Output label of the final pass. Every branch names its stream the same way,
+#: which is what lets them be assembled with an audio graph in one
+#: `-filter_complex`.
+FINAL_VIDEO_LABEL = "v"
+
+
 def build_vertical_compositor_filter(
     crop_chain: str,
     face_intervals: List[Tuple[float, float]],
@@ -1129,7 +1136,7 @@ def build_vertical_compositor_filter(
     blur_sigma: int = 14,
 ) -> str:
     """filter_complex switching between a tracked face crop and a blurred-
-    background full-frame fit over time. Produces a labelled [vout] stream.
+    background full-frame fit over time. Produces the labelled final stream.
 
     Layers: a blurred fill background (always), the face crop on top during face
     shots (covers the frame), and the centred full-frame fit during content
@@ -1155,7 +1162,7 @@ def build_vertical_compositor_filter(
         "[ftsrc]scale=1080:1920:force_original_aspect_ratio=decrease:flags=lanczos,"
         "scale=trunc(iw/2)*2:trunc(ih/2)*2,setsar=1[fit];"
         f"[bg][face]overlay=0:0:enable='{face_en}'[t1];"
-        f"[t1][fit]overlay=(W-w)/2:(H-h)/2:enable='{fit_en}'[vout]"
+        f"[t1][fit]overlay=(W-w)/2:(H-h)/2:enable='{fit_en}'[{FINAL_VIDEO_LABEL}]"
     )
 
 
@@ -1165,9 +1172,10 @@ def build_vertical_filter_plan(
     """Build the 9:16 reframing filter for the default vertical mode.
 
     Returns (filter, mode): mode 'vf' is a simple crop chain; mode 'complex' is a
-    filter_complex producing [vout]. Talking-head-only clips use the cheap
-    tracked crop; clips containing content shots use the scene-aware compositor
-    so tweets / graphs / slides are shown in full instead of being cropped.
+    filter_complex producing `[FINAL_VIDEO_LABEL]`. Talking-head-only clips use
+    the cheap tracked crop; clips containing content shots use the scene-aware
+    compositor so tweets / graphs / slides are shown in full instead of being
+    cropped.
     """
     crop_w, crop_h = compute_vertical_crop_dims(width, height)
     duration = ffprobe_duration(input_path)
@@ -1231,18 +1239,85 @@ def build_vertical_filter_plan(
     )
 
 
+def _video_graph(chain: str) -> str:
+    """Turn a plain filter chain into a complete filter_complex graph.
+
+    The "simple" branches only ever had a chain of filters (the ones we used to
+    hand to `-vf`); a graph needs its input pad and its output label spelled
+    out.
+    """
+    return f"[0:v]{chain}[{FINAL_VIDEO_LABEL}]"
+
+
+def build_final_render_command(
+    input_path: Path,
+    output_path: Path,
+    video_graph: Optional[str],
+    sound: Optional[ClipSound],
+    has_audio: bool,
+) -> List[str]:
+    """ffmpeg command for the final pass, video and audio chain assembled together.
+
+    The whole dressing happens in one encode: crop and subtitles on one side, the
+    audio mix (T4) on the other. `video_graph` is None when the video is simply
+    copied over — only the audio track is then re-encoded.
+
+    When `sound` is given, the audio graph's loudnorm replaces the pass's `-af`:
+    ffmpeg refuses to mix `-af` with `-filter_complex`, so the whole chain goes
+    through the graph. That is also the right order, since loudnorm has to close
+    the mix rather than rename it afterwards.
+    """
+    command = ["ffmpeg", "-y", "-i", str(input_path)]
+    graphs: List[str] = []
+
+    mix: Optional[MixGraph] = None
+    if sound is not None and has_audio:
+        # Two passes: the first measures the mix, the second normalises against
+        # that measurement. Without one, loudnorm falls back to dynamic mode.
+        mix = mix_graph_for(sound, measure_loudness(input_path, sound))
+
+    if mix is not None:
+        graphs.append(mix.graph)
+        command += mix.input_args
+        audio_args = build_audio_output_args(True, loudnorm=False)
+        audio_map = mix.map_args
+    elif has_audio:
+        audio_args = build_audio_output_args(True)
+        audio_map = ["-map", "0:a?"]
+    else:
+        audio_args = build_audio_output_args(False)
+        audio_map = []
+
+    if video_graph is not None:
+        graphs.insert(0, video_graph)
+
+    if graphs:
+        command += ["-filter_complex", ";".join(graphs)]
+
+    command += ["-map", f"[{FINAL_VIDEO_LABEL}]" if video_graph else "0:v"]
+    command += audio_map
+    command += (
+        build_final_video_encode_args() if video_graph else ["-c:v", "copy"]
+    )
+    command += audio_args
+    command += ["-movflags", "+faststart", str(output_path)]
+    return command
+
+
 def render_reframed_clip_ffmpeg(
     input_path: Path,
     output_path: Path,
     output_format: str,
     subtitle_ass_path: Optional[Path] = None,
     fonts_dir: Optional[Path] = None,
+    sound: Optional[ClipSound] = None,
 ) -> Tuple[bool, int, int]:
     """Render the final framed clip and (optionally) burn subtitles in one pass.
 
     Collapsing reframing + subtitle burn into a single encode avoids a whole
     generation of re-encode loss. The pass uses the high-quality profile, CFR
-    output and loudness-normalised audio.
+    output and loudness-normalised audio. `sound` adds the local music bed, the
+    ducked mix and the SFX to that same pass (spec #12, ticket #16).
     """
     width, height = ffprobe_video_size(input_path)
     has_audio = ffprobe_has_audio(input_path)
@@ -1251,22 +1326,22 @@ def render_reframed_clip_ffmpeg(
         if subtitle_ass_path
         else None
     )
-    audio_args = build_audio_output_args(has_audio)
+
+    def finish(video_graph: Optional[str], size: Tuple[int, int]) -> Tuple[bool, int, int]:
+        command = build_final_render_command(
+            input_path, output_path, video_graph, sound, has_audio
+        )
+        return run_ffmpeg_command(command).returncode == 0, *size
 
     if output_format == "original":
-        out_w, out_h = round_to_even(width), round_to_even(height)
-        if not subs:
+        out = (round_to_even(width), round_to_even(height))
+        # Nothing to do to the video: copying it avoids an encode. The audio mix
+        # does force one, so only shortcut when there is nothing to mix either.
+        if not subs and not (sound is not None and has_audio):
             shutil.copyfile(input_path, output_path)
-            return True, out_w, out_h
-        command = [
-            "ffmpeg", "-y", "-i", str(input_path),
-            "-vf", f"{subs},setsar=1",
-            *build_final_video_encode_args(),
-            *audio_args,
-            "-movflags", "+faststart",
-            str(output_path),
-        ]
-        return run_ffmpeg_command(command).returncode == 0, out_w, out_h
+            return True, *out
+        chain = f"{subs},setsar=1" if subs else ""
+        return finish(_video_graph(chain) if chain else None, out)
 
     plan = (
         detect_speaker_reframe_plan(input_path, output_format)
@@ -1278,71 +1353,36 @@ def render_reframed_clip_ffmpeg(
         left = plan["regions"]["left"]
         right = plan["regions"]["right"]
         vstack_tail = f",{subs}" if subs else ""
-        video_filter = (
+        graph = (
             f"[0:v]split=2[l][r];"
             f"[l]crop={left['tile_w']}:{left['tile_h']}:{left['tile_x']}:{left['tile_y']},"
             f"scale=1080:960:flags=lanczos,setsar=1[lv];"
             f"[r]crop={right['tile_w']}:{right['tile_h']}:{right['tile_x']}:{right['tile_y']},"
             f"scale=1080:960:flags=lanczos,setsar=1[rv];"
-            f"[lv][rv]vstack,setsar=1{vstack_tail}[v]"
+            f"[lv][rv]vstack,setsar=1{vstack_tail}[{FINAL_VIDEO_LABEL}]"
         )
-        command = [
-            "ffmpeg", "-y", "-i", str(input_path),
-            "-filter_complex", video_filter,
-            "-map", "[v]", "-map", "0:a?",
-            *build_final_video_encode_args(),
-            *audio_args,
-            "-movflags", "+faststart",
-            str(output_path),
-        ]
-        return run_ffmpeg_command(command).returncode == 0, 1080, 1920
+        return finish(graph, (1080, 1920))
 
     if plan and plan["mode"] == "pan":
-        video_filter = (
+        chain = (
             f"crop={plan['crop_w']}:{plan['crop_h']}:x='{plan['x_expression']}':y=0,"
             "scale=1080:1920:flags=lanczos,setsar=1"
         )
         if subs:
-            video_filter = f"{video_filter},{subs}"
-        command = [
-            "ffmpeg", "-y", "-i", str(input_path),
-            "-vf", video_filter,
-            *build_final_video_encode_args(),
-            *audio_args,
-            "-movflags", "+faststart",
-            str(output_path),
-        ]
-        return run_ffmpeg_command(command).returncode == 0, 1080, 1920
+            chain = f"{chain},{subs}"
+        return finish(_video_graph(chain), (1080, 1920))
 
     # Default "vertical": scene-aware — tracked crop for face shots, blurred-
     # background full-frame fit for content shots (tweets/graphs/slides).
     video_filter, mode = build_vertical_filter_plan(input_path, width, height)
     if mode == "complex":
-        if subs:
-            graph = f"{video_filter};[vout]{subs}[v]"
-            map_label = "[v]"
-        else:
-            graph = video_filter
-            map_label = "[vout]"
-        command = [
-            "ffmpeg", "-y", "-i", str(input_path),
-            "-filter_complex", graph,
-            "-map", map_label, "-map", "0:a?",
-            *build_final_video_encode_args(),
-            *audio_args,
-            "-movflags", "+faststart",
-            str(output_path),
-        ]
-        return run_ffmpeg_command(command).returncode == 0, 1080, 1920
+        # The compositor already outputs `[FINAL_VIDEO_LABEL]`, so subtitles just
+        # graft on after it. Without them the graph is already complete.
+        graph = f"{video_filter};[{FINAL_VIDEO_LABEL}]{subs}[{FINAL_VIDEO_LABEL}]" if subs else (
+            video_filter
+        )
+        return finish(graph, (1080, 1920))
 
     if subs:
         video_filter = f"{video_filter},{subs}"
-    command = [
-        "ffmpeg", "-y", "-i", str(input_path),
-        "-vf", video_filter,
-        *build_final_video_encode_args(),
-        *audio_args,
-        "-movflags", "+faststart",
-        str(output_path),
-    ]
-    return run_ffmpeg_command(command).returncode == 0, 1080, 1920
+    return finish(_video_graph(video_filter), (1080, 1920))

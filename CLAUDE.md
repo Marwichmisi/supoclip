@@ -46,9 +46,23 @@ pnpm run build        # Prisma generate + Next.js build
 pnpm run lint
 ```
 
-### No tests
+## Tests
 
-The project currently has no test files.
+```bash
+make test        # backend pytest + frontend vitest
+make check       # frontend lint + typecheck
+make test-e2e    # database-backed browser smoke tests
+cd frontend && pnpm run test:polish   # isolated browser workflows, mocked APIs
+```
+
+Backend integration tests need a real PostgreSQL: point `TEST_DATABASE_URL` at a
+throwaway database (see `docs/testing-local.md`). They cannot run against the
+development database.
+
+Render behaviour is covered by rendering, not by asserting on filter graphs:
+`backend/tests/unit/test_sound_render.py` runs ffmpeg and measures levels,
+`test_motion_render.py` renders and compares frames. Follow that pattern for new
+render work.
 
 ## Architecture
 
@@ -92,6 +106,7 @@ utils/               → Thread pool helpers for blocking operations (async_help
    - Optional transition effects (`backend/transitions/`)
    - Optional B-roll overlays (Pexels API)
    - Caption templates with animation styles
+   - Sound design: CC0 music bed ducked under the voice, SFX on the cut/hook/punchline, `loudnorm` at -14 LUFS — all local, from `assets/audio/manifest.json`
 5. **Storage** → Clips to `{TEMP_DIR}/clips/`, metadata to PostgreSQL
 
 ### Frontend Architecture
@@ -133,6 +148,8 @@ PostgreSQL 15. Schema in `init.sql`. Mixed naming conventions:
 | `src/cover.py` | 1080x1920 clip cover rendering |
 | `src/clip_editor.py` | Clip trim, split, merge, export presets |
 | `src/broll.py` | Pexels API B-roll integration |
+| `src/media/sound.py` | Local music bed, SFX timecodes, ducked mix, loudness normalisation |
+| `src/assets_manifests.py` | Versioned `assets/` manifests with CC0 licence proof |
 | `src/caption_templates.py` | Caption template system |
 | `src/config.py` | Environment variable configuration |
 
@@ -199,6 +216,18 @@ BETTER_AUTH_SECRET=...               # Frontend auth secret
 
 Drop `.ttf` files into `backend/fonts/` or `.mp4` files into `backend/transitions/`. They auto-appear via their respective `GET` endpoints.
 
+### Adding audio or B-roll assets
+
+Add the file under `assets/audio/` or `assets/broll/`, then register it in that
+directory's `manifest.json` with `id`, `path`, `duration`, `license` (`CC0`),
+`source_url`, `published_at`, `sha256` and `keywords`. The loader rejects a
+manifest without licence proof and skips any asset whose sha256 no longer matches
+the file, so a stale hash silently drops the asset instead of shipping a broken
+mix. Role travels in the keywords: `["bed"]` for a music bed, `["sfx", "whoosh" |
+"pop" | "rise"]` for a cue. `assets/` is baked into the backend image (the build
+context is the repo root) and bind-mounted in development, so no rebuild is
+needed to try an asset locally.
+
 ### Modifying AI clip selection
 
 Edit `backend/src/ai.py`: `simplified_system_prompt` controls selection criteria, `TranscriptSegment` defines the output model, `get_most_relevant_parts_by_transcript()` runs analysis with validation.
@@ -210,6 +239,7 @@ Edit `backend/src/ai.py`: `simplified_system_prompt` controls selection criteria
 - Virality scoring: `hook_score`, `engagement_score`, `value_score`, `shareability_score` (0-25 each, summed to `virality_score` 0-100)
 - Each segment gets an AI-written `hook_title` (3-9 words) burned into the top safe area for the first ~4s (`build_hook_title_ass` in `video_utils.py`), persisted on `generated_clips.hook_title`
 - Static talking-head crops get a slow ~5% Ken Burns punch-in (`kenburns_zoom_fragment`); tracked pans and split screens keep their own motion
+- Audio final: one ffmpeg pass mixes voice + ducked music bed + SFX and normalises to -14 LUFS / -1.5 dBTP. Zero network calls at render time. The editor export path (`editor_document.render_document`) has its own audio chain and is not covered by this.
 
 ## iOS App
 

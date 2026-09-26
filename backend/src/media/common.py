@@ -103,7 +103,20 @@ OUTPUT_FPS = 30
 
 AUDIO_BITRATE = "192k"
 
-LOUDNORM_FILTER = "loudnorm=I=-14:TP=-1.5:LRA=11"
+#: Niveau final vise par la passe audio : -14 LUFS integres, plafond true peak
+#: a -1.5 dBTP, plage LRA resserree a 11 LU. C'est la cible des plateformes
+#: courtes (TikTok, Reels, Shorts). Ces trois nombres sont la seule source de
+#: verite : `LOUDNORM_FILTER` les assemble, et le graphe de sound design les
+#: reutilise tels quels pour ne pas normaliser autrement selon le chemin.
+LOUDNESS_TARGET_LUFS = -14
+LOUDNESS_TARGET_TP = -1.5
+LOUDNESS_TARGET_LRA = 11
+
+LOUDNORM_FILTER = (
+    f"loudnorm=I={LOUDNESS_TARGET_LUFS}"
+    f":TP={LOUDNESS_TARGET_TP}"
+    f":LRA={LOUDNESS_TARGET_LRA}"
+)
 
 _EMOJI_SUPPORT_CACHE: Optional[bool] = None
 

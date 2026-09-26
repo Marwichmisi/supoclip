@@ -195,6 +195,10 @@ Important backend modules:
   - Available subtitle template definitions
 - `broll.py`
   - Optional Pexels integration
+- `media/sound.py`
+  - Local music bed, SFX timecodes, ducked mix, loudness normalisation
+- `assets_manifests.py`
+  - Versioned local asset manifests with CC0 licence proof
 - `font_registry.py`
   - Font discovery and registration
 - `observability.py`
@@ -302,6 +306,7 @@ The rough pipeline is:
    - Face-aware cropping
    - Optional transitions
    - Optional B-roll
+   - Sound design: ducked music bed, SFX, loudness normalisation
 5. Persistence
    - Clip metadata in PostgreSQL
    - media files in mounted storage
@@ -315,6 +320,36 @@ The rendering path includes support for:
 - Subtitle overlays
 - Caption templates
 - Font customization
+
+### Sound design
+
+`backend/src/media/sound.py` adds a music bed and SFX to the final render pass,
+100% from the versioned `assets/audio/` bundle. There is no network call at
+runtime: the bundle is baked into the backend image, and bind-mounted over it in
+development so an asset can be tried without a rebuild.
+
+The chain is assembled in two layers:
+
+- `build_sound_plan` is pure. From the clip's keep ranges it decides *where* each
+  SFX lands on the output timeline — a whoosh on every internal cut, a pop on
+  the hook's key word, a rise just before the punchline. Cuts are projected
+  through the same crossfade compensation as the captions, so a cue never drifts
+  from the cut it announces.
+- `build_audio_mix_graph` turns a plan plus resolved files into ffmpeg
+  `filter_complex` arguments: voice + bed ducked by sidechain + SFX at their
+  timecodes, closed by `loudnorm` at the short-form platform target
+  (-14 LUFS, -1.5 dBTP). The voice goes straight into the mix, so ducking can
+  only ever touch the bed.
+
+Loudness is normalised in two passes: the first decodes audio only and prints
+`loudnorm`'s measurements, the second applies them. A mix that measures as
+inaudible (or an ffmpeg that fails) falls back to `loudnorm`'s dynamic mode
+rather than forwarding `-inf` into the render.
+
+Every asset in `assets/audio/manifest.json` carries its CC0 proof (source URL,
+publication date, sha256). An asset whose file is missing or whose hash no
+longer matches is skipped with a warning: an incomplete bundle must degrade to a
+bare voice, never fail a render.
 
 ## Progress and Realtime Updates
 

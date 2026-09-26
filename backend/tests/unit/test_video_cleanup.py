@@ -236,6 +236,7 @@ def test_create_optimized_clip_fast_path_uses_keep_range_start(monkeypatch, tmp_
 
     class _CompletedProcess:
         returncode = 0
+        stdout = ""  # aucune piste audio : le fast path doit rester possible
         stderr = ""
 
     def fake_run(command, **_kwargs):

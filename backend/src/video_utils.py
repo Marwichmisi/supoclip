@@ -124,6 +124,7 @@ from .media.reframing import (
     smooth_values,
     trajectory_has_movement,
 )
+from .media.sound import bed_seed, prepare_clip_sound
 from .media.common import (
     ANALYSIS_LONG_UTTERANCE_MAX_DURATION_MS,
     ANALYSIS_LONG_UTTERANCE_MAX_WORDS,
@@ -276,8 +277,35 @@ def create_optimized_clip(
             f"subtitles={add_subtitles} template '{caption_template}' format={'original' if keep_original else 'vertical'}"
         )
 
+        # T4 sound design: local music bed ducked under the voice + SFX on the
+        # clip's timecodes. Built before the fast path because the mix forces a
+        # re-encode, which would otherwise be silently skipped. The output
+        # timeline is shorter than the sum of the ranges (each junction eats a
+        # crossfade), and the cues must land on the *output* clock.
+        #
+        # A source with no audio has nothing to duck or normalise, so it keeps
+        # the bare track — and the stream-copy fast path stays available.
+        sound = None
+        if ffprobe_has_audio(video_path):
+            fade = crossfade_fade_for_ranges(effective_keep_ranges)
+            output_duration = duration - fade * max(0, len(effective_keep_ranges) - 1)
+            sound = prepare_clip_sound(
+                video_path,
+                effective_keep_ranges,
+                duration=output_duration,
+                has_hook=bool(hook_title),
+                seed=bed_seed(video_path, effective_keep_ranges),
+            )
+
         # Fast path: no subtitles + original = ffmpeg stream copy (no re-encoding)
-        if not add_subtitles and not hook_title and keep_original and len(effective_keep_ranges) == 1 and extend_to_sentence:
+        if (
+            not add_subtitles
+            and not hook_title
+            and keep_original
+            and len(effective_keep_ranges) == 1
+            and extend_to_sentence
+            and sound is None
+        ):
             fast_path_start, fast_path_end = effective_keep_ranges[0]
             result = subprocess.run(
                 [
@@ -355,6 +383,7 @@ def create_optimized_clip(
                 reframe_format,
                 subtitle_ass_path=burn_ass_path,
                 fonts_dir=fonts_dir,
+                sound=sound,
             )
             if not framed_ok:
                 raise RuntimeError("ffmpeg reframe render failed")

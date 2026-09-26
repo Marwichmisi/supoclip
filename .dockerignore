@@ -1,0 +1,54 @@
+# Build context for the backend/worker image (see docker-compose.yml).
+#
+# The context is the repo root rather than backend/ because the image also
+# ships the versioned `assets/` bundle (music beds, SFX, B-roll) that
+# src/assets_manifests.py resolves. Everything the image does not need is
+# ignored so the context stays small.
+#
+# This file only applies to builds whose context is the repo root; the frontend
+# and MCP builds keep using their own context and .dockerignore.
+
+# VCS / CI
+.git/
+.github/
+.gitignore
+
+# Services that have their own images
+frontend/
+mcp/
+
+# Docs, infra and agent config: no runtime value
+docker-compose.yml
+Makefile
+start.sh
+install_cron.sh
+init.sql
+docs/
+.agents/
+skills-lock.json
+*.md
+
+# Secrets
+.env
+.env.*
+!.env.example
+
+# Python / tooling
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/htmlcov/
+**/.coverage*
+**/.venv/
+**/venv/
+.DS_Store
+Thumbs.db
+
+# Local state
+uploads/
+clips/
+logs/
+backend/temp/
+backend/temp_*.css

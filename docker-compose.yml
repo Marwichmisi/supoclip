@@ -74,8 +74,10 @@ services:
 
   backend:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      # Repo root, not ./backend: the image ships the versioned assets/ bundle
+      # (music beds, SFX) that the render resolves locally.
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: supoclip-backend
     platform: linux/amd64
     command: [".venv/bin/uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
@@ -87,6 +89,7 @@ services:
       - clips:/app/clips
       - ./backend/fonts:/app/fonts
       - ./backend/transitions:/app/transitions
+      - ./assets:/app/assets
     environment:
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1
@@ -182,8 +185,10 @@ services:
   # Worker process for background video processing
   worker:
     build:
-      context: ./backend
-      dockerfile: Dockerfile
+      # Same image as the backend: the worker is what renders clips, so it is
+      # the one that needs the local assets/ bundle.
+      context: .
+      dockerfile: backend/Dockerfile
     container_name: supoclip-worker
     platform: linux/amd64
     command: [".venv/bin/arq", "src.workers.tasks.WorkerSettings"]
@@ -193,6 +198,7 @@ services:
       - clips:/app/clips
       - ./backend/fonts:/app/fonts
       - ./backend/transitions:/app/transitions
+      - ./assets:/app/assets
     environment:
       - PYTHONPATH=/app
       - PYTHONUNBUFFERED=1

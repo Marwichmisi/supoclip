@@ -24,7 +24,7 @@ RUN pip install uv
 WORKDIR /app
 
 # Copy pyproject.toml and uv.lock for dependency installation
-COPY pyproject.toml uv.lock* ./
+COPY backend/pyproject.toml backend/uv.lock* ./
 
 # Create virtual environment and install dependencies using uv sync
 RUN uv venv .venv && uv sync
@@ -35,11 +35,16 @@ RUN uv pip install --upgrade --force-reinstall yt-dlp
 RUN uv pip install --upgrade --force-reinstall "yt-dlp[default]"
 
 # Copy source code
-COPY src/ ./src/
+COPY backend/src/ ./src/
 
 # Copy fonts and transitions directories
-COPY fonts/ ./fonts/
-COPY transitions/ ./transitions/
+COPY backend/fonts/ ./fonts/
+COPY backend/transitions/ ./transitions/
+
+# Copy the versioned local assets bundle (audio beds, SFX, B-roll). Sound
+# design and B-roll resolution are 100% offline, so the files are baked in:
+# a self-hosted render must never depend on a download (spec #12, T4).
+COPY assets/ ./assets/
 
 # Create necessary directories for video processing
 RUN mkdir -p /app/uploads /app/clips /app/logs /tmp

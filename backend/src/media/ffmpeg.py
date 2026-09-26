@@ -146,12 +146,19 @@ def build_final_video_encode_args(
 
 
 def build_audio_output_args(has_audio: bool, loudnorm: bool = True) -> List[str]:
-    """Audio encode args (with optional loudness normalisation) or `-an`."""
+    """Audio encode args (with optional loudness normalisation) or `-an`.
+
+    T5 voix pro : la chaine voix (coupe-bas, denoise modere, de-esser, EQ,
+    compression, limiteur) precede toujours la normalisation, qui reste en
+    dernier comme l'exige le spec #12.
+    """
     if not has_audio:
         return ["-an"]
     args: List[str] = []
     if loudnorm:
-        args += ["-af", LOUDNORM_FILTER]
+        from .voice import build_voice_filter
+
+        args += ["-af", f"{build_voice_filter()},{LOUDNORM_FILTER}"]
     args += ["-c:a", "aac", "-b:a", AUDIO_BITRATE, "-ar", "48000"]
     return args
 

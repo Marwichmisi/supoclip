@@ -433,7 +433,13 @@ def build_audio_mix_graph(
     measured: Optional[Mapping[str, Any]] = None,
     print_format: Optional[str] = None,
 ) -> Optional[MixGraph]:
-    """Chaine audio de la passe finale : voix + lit ducke + SFX -> loudnorm.
+    """Chaine audio de la passe finale : voix pro + lit ducke + SFX -> loudnorm.
+
+    T5 voix pro : la voix passe d'abord par la chaine voix (coupe-bas,
+    denoise modere, de-esser, EQ, compression, limiteur), avant le split
+    vers le mix et vers la cle sidechain. La cle voit donc la meme voix
+    nettoyee, ce qui garde le ducking calibre en T4 (ton 6 kHz a +0.1 dB).
+    Le lit et les SFX ne sont jamais filtres par la chaine voix.
 
     Renvoie None si le bundle n'a rien a jouer, pour que l'appelant garde le
     chemin voix nue. L'entree 0 est le clip lui-meme ; le lit et les SFX
@@ -443,6 +449,10 @@ def build_audio_mix_graph(
     placements = _place_cues(plan, library)
     if not bed and not placements:
         return None
+
+    from .voice import build_voice_filter
+
+    voice_filter = build_voice_filter()
 
     input_args: List[str] = []
     parts: List[str] = []
@@ -458,7 +468,7 @@ def build_audio_mix_graph(
         parts.append(
             f"[{bed_index}:a]volume={BED_GAIN_DB}dB,atrim=0:{plan.duration:.3f}[bedraw]"
         )
-        parts.append("[0:a]asplit=2[voice][voicekey]")
+        parts.append(f"[0:a]{voice_filter},asplit=2[voice][voicekey]")
         parts.append(
             f"[bedraw][voicekey]sidechaincompress="
             f"threshold={DUCK_THRESHOLD}:ratio={DUCK_RATIO}"
@@ -466,7 +476,7 @@ def build_audio_mix_graph(
             f":makeup=1[bed]"
         )
     else:
-        parts.append("[0:a]anull[voice]")
+        parts.append(f"[0:a]{voice_filter},anull[voice]")
 
     sfx_labels: List[str] = []
     for index, (cue, asset) in enumerate(placements):

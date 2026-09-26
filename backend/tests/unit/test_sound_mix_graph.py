@@ -81,7 +81,9 @@ def test_the_voice_is_split_off_so_ducking_can_never_touch_it(tmp_path):
     assert compressed_input == "[bedraw"
     assert key_input == "voicekey]"
     # La voix est donc routée deux fois : une vers le mix, une vers la cle.
-    assert "[0:a]asplit=2[voice][voicekey]" in mix.graph
+    # T5 : la voix passe d'abord par la chaine voix pro, puis split.
+    assert "asplit=2[voice][voicekey]" in mix.graph
+    assert "[0:a]highpass" in mix.graph
     assert "[voice]" in mix.graph
 
 

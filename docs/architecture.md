@@ -351,6 +351,19 @@ publication date, sha256). An asset whose file is missing or whose hash no
 longer matches is skipped with a warning: an incomplete bundle must degrade to a
 bare voice, never fail a render.
 
+### Voix pro
+
+`backend/src/media/voice.py` (T5) cleans the voice before anything else, in
+the spec's imperative order: high-pass 80 Hz, moderate denoise
+(`afftdn nr=12:nf=-25`), de-esser (`i=0.25`, preserves the T4 6 kHz probe tone
+within 1 dB), +3 dB presence EQ at 3.5 kHz, gentle 2:1 compression with makeup,
+lookahead limiter. `loudnorm` always closes the chain last — in the mix graph
+and in the bare-voice `-af` path alike.
+
+The filtered voice feeds both the mix and the sidechain key, so the T4 ducking
+calibration still holds; bed and SFX are never voice-filtered. Transcription
+keeps reading the raw audio (`transcription.py` imports no voice code).
+
 ## Progress and Realtime Updates
 
 The task detail page subscribes to progress using Server-Sent Events.

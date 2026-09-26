@@ -136,7 +136,7 @@ def _derived_candidates(segment_text: str, hook_type: str | None) -> list[str]:
         return [
             f"Avant / après : {subject}",
             f"Ce que {subject} révèle",
-            f"La lesson de {subject}",
+            f"La leçon de {subject}",
         ]
     return [
         f"{subject} : le point clé",

@@ -271,11 +271,19 @@ async def get_caption_templates():
 
 @router.get("/broll/status")
 async def get_broll_status():
-    """Return whether B-roll integrations are configured."""
-    config = get_config()
+    """Return whether the local B-roll bundle can incrust overlays.
+
+    T6 (spec #12) : le rendu est 100% local, Pexels est exclu du runtime
+    (dev seul). ``configured`` est vrai des qu'au moins un asset CC0
+    valide est charge ; sinon le rendu garde le blur cinematique.
+    """
+    from ...media.broll_local import load_broll_library
+
+    library = load_broll_library()
     return {
-        "configured": bool(config.pexels_api_key),
-        "provider": "pexels" if config.pexels_api_key else None,
+        "configured": not library.is_empty,
+        "provider": "local" if not library.is_empty else None,
+        "count": len(library.all_assets()),
     }
 
 

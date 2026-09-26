@@ -1,1 +1,1 @@
-{"assets": [], "kind": "broll", "version": 1}
+{"assets": [], "kind": "broll", "notes": "T6 (spec #12) : resolveur local mot-cle -> clip CC0 normalise 1080x1920, sinon blur cinematique. Chaque asset porte sa preuve CC0 (licence, url source, date de publication, sha256) et des mots-cles FR ; un asset sans preuve est refuse au chargement. Stock Pixabay pre-2019 a verser ici via dev-only src/broll.py (Pexels exclu du runtime) ; bundle vide = blur systematique, jamais de trou visuel.", "version": 1}

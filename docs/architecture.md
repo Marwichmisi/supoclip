@@ -194,7 +194,9 @@ Important backend modules:
 - `caption_templates.py`
   - Available subtitle template definitions
 - `broll.py`
-  - Optional Pexels integration
+  - Dev-only Pexels helper to source CC0 stock (never imported at render time)
+- `media/broll_local.py`
+  - Local keyword-to-clip resolver over `assets/broll/manifest.json`, blur fallback
 - `media/sound.py`
   - Local music bed, SFX timecodes, ducked mix, loudness normalisation
 - `assets_manifests.py`
@@ -363,6 +365,29 @@ and in the bare-voice `-af` path alike.
 The filtered voice feeds both the mix and the sidechain key, so the T4 ducking
 calibration still holds; bed and SFX are never voice-filtered. Transcription
 keeps reading the raw audio (`transcription.py` imports no voice code).
+
+### B-roll local
+
+`backend/src/media/broll_local.py` (T6) resolves overlays 100% offline from
+the versioned `assets/broll/` bundle. There is no network call at render
+time: the legacy Pexels helper (`src/broll.py`) is dev-only for sourcing
+pre-2019 CC0 stock to normalise in 1080x1920 and register in the manifest.
+
+The chain is assembled in two layers, mirroring the T4 sound design:
+
+- `build_broll_plan` is pure. From keyword opportunities (AI `search_term`
+  or transcript fallback) it decides *which* local asset lands *where* on
+  the output timeline. Unmatched keywords are dropped, so a clip with no
+  match keeps the existing cinematic blur — never a visual hole.
+- `apply_local_broll` turns a plan plus resolved files into 1080x1920
+  overlays via the existing `insert_broll_into_clip` helper (resize + fade).
+
+Every asset in `assets/broll/manifest.json` carries its CC0 proof (source
+URL, publication date, sha256) plus FR keywords. An asset whose file is
+missing or whose hash no longer matches is skipped with a warning, and an
+asset without licence proof is refused at load: an incomplete bundle
+degrades to cinematic blur, never fails a render. An empty bundle (shipped
+state until CC0 stock is vendored) means systematic blur.
 
 ## Progress and Realtime Updates
 

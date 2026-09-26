@@ -1,5 +1,14 @@
 """
-B-Roll functionality for video enhancement using Pexels API.
+B-Roll functionality — DEV ONLY (Pexels API).
+
+.. deprecated::
+    Le runtime V1 (spec #12, T6) est 100% local : le rendu resolve ses
+    overlays depuis ``assets/broll/manifest.json`` via
+    ``src/media/broll_local.py`` (zero appel reseau, blur fallback).
+    Ce module Pexels reste disponible pour constituer le stock en dev
+    (recherche/telechargement pre-2019 a normaliser en 1080x1920 puis
+    versement au manifest avec preuve CC0), mais le chemin de rendu ne
+    doit jamais l'importer.
 """
 
 import httpx
